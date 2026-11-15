@@ -1,0 +1,1438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TripSplit — Collaborative Travel Expense Tracker</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root {
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --header-bg: #0f172a;
+      --accent-text: #60a5fa;
+      --badge-bg: #eff6ff;
+      --badge-text: #1d4ed8;
+    }
+    [data-theme="emerald"] {
+      --primary: #059669;
+      --primary-hover: #047857;
+      --header-bg: #064e3b;
+      --accent-text: #34d399;
+      --badge-bg: #ecfdf5;
+      --badge-text: #047857;
+    }
+    [data-theme="rose"] {
+      --primary: #e11d48;
+      --primary-hover: #be123c;
+      --header-bg: #4c0519;
+      --accent-text: #fb7185;
+      --badge-bg: #fff1f2;
+      --badge-text: #be123c;
+    }
+    [data-theme="violet"] {
+      --primary: #7c3aed;
+      --primary-hover: #6d28d9;
+      --header-bg: #2e1065;
+      --accent-text: #a78bfa;
+      --badge-bg: #f5f3ff;
+      --badge-text: #6d28d9;
+    }
+    [data-theme="amber"] {
+      --primary: #d97706;
+      --primary-hover: #b45309;
+      --header-bg: #451a03;
+      --accent-text: #fbbf24;
+      --badge-bg: #fffbeb;
+      --badge-text: #b45309;
+    }
+
+    .theme-header { background-color: var(--header-bg); }
+    .theme-accent-text { color: var(--accent-text); }
+    .theme-btn { background-color: var(--primary); color: white; }
+    .theme-btn:hover { background-color: var(--primary-hover); }
+    .theme-badge { background-color: var(--badge-bg); color: var(--badge-text); }
+    .theme-tab-active { border-color: var(--accent-text); color: var(--accent-text); }
+
+    @media print {
+      .no-print { display: none !important; }
+      body { background: white !important; }
+      .print-break { page-break-before: always; }
+    }
+    .pill-active {
+      background-color: var(--primary);
+      color: white;
+      border-color: var(--primary);
+    }
+    .pill-inactive {
+      background-color: #f8fafc;
+      color: #64748b;
+      border-color: #cbd5e1;
+    }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen pb-24">
+
+  <!-- Top Navigation & Trip Switcher -->
+  <header class="theme-header text-white sticky top-0 z-30 shadow-md no-print transition-colors">
+    <div class="max-w-4xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-2">
+      <div class="flex items-center gap-2">
+        <span class="text-xl font-bold tracking-tight theme-accent-text">✈️ TripSplit</span>
+        <select id="tripSelector" onchange="switchTrip(this.value)" class="bg-black/25 text-white text-sm rounded-lg px-3 py-1.5 border border-white/15 focus:outline-none max-w-[180px] truncate">
+          <option value="">-- Select or Add Trip --</option>
+        </select>
+      </div>
+      <div class="flex items-center gap-1.5">
+        <!-- Theme Picker -->
+        <select id="themeSelector" onchange="setTheme(this.value)" title="Color Theme" class="bg-black/25 text-white text-xs rounded-lg px-2 py-1.5 border border-white/15 focus:outline-none">
+          <option value="blue">🔵 Ocean</option>
+          <option value="emerald">🟢 Emerald</option>
+          <option value="rose">🔴 Rose</option>
+          <option value="violet">🟣 Violet</option>
+          <option value="amber">🟠 Amber</option>
+        </select>
+        <button onclick="openTripModal()" class="text-xs bg-white/10 hover:bg-white/20 px-2.5 py-1.5 rounded-lg border border-white/15">+ Trip</button>
+        <button onclick="copyShareLink()" id="shareBtn" class="text-xs theme-btn px-2.5 py-1.5 rounded-lg font-medium hidden">Share Link</button>
+        <button onclick="refreshData()" id="syncBtn" class="text-xs bg-white/15 hover:bg-white/25 px-2.5 py-1.5 rounded-lg font-medium hidden">↻ Sync</button>
+      </div>
+    </div>
+
+    <!-- Navigation Tabs -->
+    <nav class="max-w-4xl mx-auto px-4 flex border-t border-white/10 text-xs sm:text-sm font-medium">
+      <button onclick="switchTab('expenses')" id="tab-expenses" class="flex-1 py-2.5 text-center border-b-2 theme-tab-active hidden">Expenses</button>
+      <button onclick="switchTab('summary')" id="tab-summary" class="flex-1 py-2.5 text-center border-b-2 border-transparent text-white/60 hover:text-white hidden">Summary & Chart</button>
+      <button onclick="switchTab('setup')" id="tab-setup" class="flex-1 py-2.5 text-center border-b-2 border-transparent text-white/60 hover:text-white hidden">Trip Setup & FX</button>
+      <button onclick="switchTab('guide')" id="tab-guide" class="flex-1 py-2.5 text-center border-b-2 border-transparent text-white/60 hover:text-white">📖 Setup Guide</button>
+    </nav>
+  </header>
+
+  <!-- Loading Overlay -->
+  <div id="loader" class="fixed inset-0 bg-slate-900/40 backdrop-blur-xs z-50 hidden flex items-center justify-center">
+    <div class="bg-white px-6 py-4 rounded-xl shadow-lg flex items-center gap-3">
+      <div class="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+      <span class="text-sm font-medium text-slate-700" id="loaderText">Syncing with Google Sheet...</span>
+    </div>
+  </div>
+
+  <main class="max-w-4xl mx-auto px-4 pt-6">
+    <!-- Welcome / Empty State -->
+    <div id="emptyState" class="bg-white rounded-2xl shadow-xs border border-slate-200 p-8 text-center mt-6">
+      <div class="text-4xl mb-3">🌏</div>
+      <h1 class="text-xl font-bold text-slate-900 mb-2">Connect a Trip Google Sheet</h1>
+      <p class="text-sm text-slate-500 max-w-md mx-auto mb-6">
+        If a friend sent you a Share Link, open that link directly. Otherwise, connect your Google Sheet Web App URL below (see <b>📖 Setup Guide</b> for 2-minute instructions).
+      </p>
+      <div class="flex flex-wrap justify-center gap-3">
+        <button onclick="openTripModal()" class="theme-btn font-medium px-5 py-2.5 rounded-xl shadow-xs text-sm">
+          + Connect Google Sheet URL
+        </button>
+        <button onclick="switchTab('guide')" class="bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium px-5 py-2.5 rounded-xl text-sm">
+          📖 How to Create a Trip Sheet
+        </button>
+      </div>
+    </div>
+
+    <!-- TAB 1: EXPENSES -->
+    <section id="view-expenses" class="hidden space-y-6">
+      <div class="bg-white rounded-2xl p-4 border border-slate-200 shadow-xs flex flex-wrap justify-between items-center gap-4">
+        <div>
+          <h2 id="displayTripName" class="text-lg font-bold text-slate-900">Trip Name</h2>
+          <p id="displayTripDate" class="text-xs text-slate-500">Dates</p>
+        </div>
+        <div class="text-right">
+          <div class="text-xs text-slate-400 uppercase font-semibold">Total Trip Spend</div>
+          <div id="displayTotalSpend" class="text-xl font-bold" style="color: var(--primary)">0.00</div>
+        </div>
+      </div>
+
+      <!-- Add / Edit Expense Form -->
+      <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs no-print">
+        <div class="flex justify-between items-center mb-4">
+          <h3 id="formTitle" class="font-bold text-slate-800">Add New Expense</h3>
+          <button type="button" onclick="resetForm()" id="cancelEditBtn" class="text-xs text-rose-600 hover:underline hidden">Cancel Edit</button>
+        </div>
+
+        <form id="expenseForm" onsubmit="submitExpense(event)" class="space-y-4">
+          <input type="hidden" id="txId" />
+
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div class="col-span-2">
+              <label class="block text-xs font-semibold text-slate-600 mb-1">Item / Description *</label>
+              <input type="text" id="txItem" required placeholder="e.g. Ichiran Ramen" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 mb-1">Category *</label>
+              <select id="txCategory" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:border-blue-500"></select>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 mb-1">Date *</label>
+              <input type="date" id="txDate" required class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:border-blue-500" />
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 mb-1">Total Amount *</label>
+              <input type="number" step="0.01" min="0.01" id="txAmount" required oninput="onAmountInput()" placeholder="0.00" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-base font-bold text-slate-900 focus:outline-none focus:border-blue-500" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-600 mb-1">Currency *</label>
+              <select id="txCurrency" onchange="onAmountInput()" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-base font-semibold focus:outline-none focus:border-blue-500"></select>
+            </div>
+          </div>
+
+          <!-- WHO PAID SECTION (WITH AUTO-REMAINDER) -->
+          <div class="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+            <div class="flex flex-wrap justify-between items-center gap-2 mb-2">
+              <label class="text-xs font-bold text-slate-700 uppercase tracking-wide">Who Paid? (Click to select)</label>
+              <div class="flex items-center gap-3">
+                <button type="button" id="resetPayerPinsBtn" onclick="resetPayerPins()" class="text-xs text-slate-500 hover:underline hidden">Reset Even</button>
+                <label class="inline-flex items-center gap-1.5 text-xs font-medium cursor-pointer" style="color: var(--primary)">
+                  <input type="checkbox" id="multiPayerToggle" onchange="toggleMultiPayer()" class="rounded" />
+                  Multiple / Uneven Payers
+                </label>
+              </div>
+            </div>
+            <div id="payerPills" class="flex flex-wrap gap-2"></div>
+            <div id="multiPayerSelectPills" class="flex flex-wrap gap-2 mb-2.5 hidden"></div>
+            <div id="multiPayerInputs" class="space-y-1.5 hidden"></div>
+            <div id="payerValidation" class="text-xs text-rose-600 font-medium mt-1.5 hidden"></div>
+          </div>
+
+          <!-- WHO SHARES SECTION (PIN & AUTO-EVEN) -->
+          <div class="bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+            <div class="flex flex-wrap justify-between items-center gap-2 mb-2">
+              <label class="text-xs font-bold text-slate-700 uppercase tracking-wide">Who Shares? (Click names to toggle)</label>
+              <div class="flex items-center gap-2">
+                <button type="button" onclick="selectAllSharers()" class="text-xs hover:underline" style="color: var(--primary)">All</button>
+                <span class="text-slate-300">|</span>
+                <button type="button" onclick="resetPins()" class="text-xs text-slate-500 hover:underline">Reset Even</button>
+              </div>
+            </div>
+            <div id="sharerPills" class="flex flex-wrap gap-2 mb-3"></div>
+            <div id="splitBreakdown" class="space-y-1.5"></div>
+            <div id="splitValidation" class="text-xs text-rose-600 font-medium mt-1.5 hidden"></div>
+          </div>
+
+          <div>
+            <input type="text" id="txNotes" placeholder="Optional note (e.g. receipt #, credit card used)" class="w-full rounded-xl border border-slate-200 px-3 py-1.5 text-xs text-slate-600 focus:outline-none focus:border-blue-500" />
+          </div>
+
+          <button type="submit" class="w-full theme-btn font-semibold py-2.5 rounded-xl shadow-xs transition">
+            Save Expense
+          </button>
+        </form>
+      </div>
+
+      <!-- Transaction List -->
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+        <div class="px-5 py-3.5 border-b border-slate-100 flex justify-between items-center">
+          <h3 class="font-bold text-slate-800">Transactions (<span id="txCount">0</span>)</h3>
+          <input type="text" id="searchTx" oninput="renderTransactions()" placeholder="Filter items..." class="text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 w-40 no-print" />
+        </div>
+        <div id="txList" class="divide-y divide-slate-100"></div>
+      </div>
+    </section>
+
+    <!-- TAB 2: SUMMARY, CHARTS & EXPORT -->
+    <section id="view-summary" class="hidden space-y-6">
+      <div class="flex flex-wrap justify-between items-center gap-2 no-print">
+        <h2 class="text-lg font-bold text-slate-900">Trip Settlement & Analytics</h2>
+        <div class="flex gap-2">
+          <button onclick="exportCSV()" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-3.5 py-2 rounded-xl shadow-xs">
+            ⬇ Export CSV (Excel)
+          </button>
+          <button onclick="printFullReport()" class="bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold px-3.5 py-2 rounded-xl shadow-xs">
+            🖨 Print / Save PDF Report
+          </button>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs">
+        <h3 class="font-bold text-slate-800 mb-1">Suggested Settlement Transfers</h3>
+        <p class="text-xs text-slate-500 mb-4">Minimum transfers needed so everyone breaks even in <span class="homeCurrLabel font-semibold">HKD</span>:</p>
+        <div id="settlementTransfers" class="space-y-2"></div>
+      </div>
+
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-x-auto">
+        <div class="px-5 py-3.5 border-b border-slate-100">
+          <h3 class="font-bold text-slate-800">Participant Balance Table (<span class="homeCurrLabel">HKD</span>)</h3>
+          <p class="text-xs text-slate-400">+ve means collect money; -ve means owe money</p>
+        </div>
+        <table class="w-full text-sm text-left">
+          <thead class="bg-slate-50 text-xs uppercase text-slate-500 border-b border-slate-200">
+            <tr>
+              <th class="px-4 py-2.5">Participant</th>
+              <th class="px-4 py-2.5 text-right">Total Paid</th>
+              <th class="px-4 py-2.5 text-right">Total Share</th>
+              <th class="px-4 py-2.5 text-right">Net Balance</th>
+            </tr>
+          </thead>
+          <tbody id="balanceTableBody" class="divide-y divide-slate-100"></tbody>
+        </table>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs flex flex-col items-center justify-center">
+          <h3 class="font-bold text-slate-800 mb-3 self-start">Spending by Category</h3>
+          <div class="w-full max-w-[260px]">
+            <canvas id="categoryChart"></canvas>
+          </div>
+        </div>
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+          <div class="px-5 py-3.5 border-b border-slate-100">
+            <h3 class="font-bold text-slate-800">Category Totals (<span class="homeCurrLabel">HKD</span>)</h3>
+          </div>
+          <table class="w-full text-sm">
+            <tbody id="categoryTableBody" class="divide-y divide-slate-100"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="hidden print:block print-break">
+        <h3 class="font-bold text-base mb-2">Full Transaction Fact-Check Ledger</h3>
+        <table class="w-full text-xs border-collapse border border-slate-300" id="printLedgerTable"></table>
+      </div>
+    </section>
+
+    <!-- TAB 3: TRIP SETUP & CURRENCY FX -->
+    <section id="view-setup" class="hidden space-y-6">
+      <div class="bg-white rounded-2xl p-5 border border-slate-200 shadow-xs space-y-4">
+        <h2 class="font-bold text-slate-900">Trip Configuration</h2>
+        
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1">Trip Name</label>
+            <input type="text" id="cfgTripName" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1">Trip Dates</label>
+            <input type="text" id="cfgTripDate" placeholder="e.g. 24-28 Dec 2026" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1">Home / Settlement Currency</label>
+            <input type="text" id="cfgHomeCurrency" maxlength="5" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm uppercase" />
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1">Default Expense Currency</label>
+            <select id="cfgDefaultCurrency" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold"></select>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1">Participants (Comma separated)</label>
+            <input type="text" id="cfgParticipants" placeholder="CCY, AY, Alex" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" />
+            <p class="text-[11px] text-slate-400 mt-1">Adding participants later will NOT alter past expenses.</p>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1">Optional Trip PIN (Privacy Lock)</label>
+            <input type="text" id="cfgTripPin" placeholder="Leave blank for link-only access" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" />
+            <p class="text-[11px] text-slate-400 mt-1">If set, anyone opening the link must enter this PIN.</p>
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">Categories (Comma separated)</label>
+          <input type="text" id="cfgCategories" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" />
+        </div>
+
+        <!-- Exchange Rates Table -->
+        <div>
+          <div class="flex justify-between items-center mb-2">
+            <label class="text-xs font-bold text-slate-700 uppercase">Exchange Rates (1 Foreign = X Home)</label>
+            <button type="button" onclick="addCurrencyRow()" class="text-xs hover:underline" style="color: var(--primary)">+ Add Currency</button>
+          </div>
+          <div class="overflow-x-auto border border-slate-200 rounded-xl">
+            <table class="w-full text-xs text-left">
+              <thead class="bg-slate-50 text-slate-500 border-b border-slate-200">
+                <tr>
+                  <th class="px-3 py-2">Currency</th>
+                  <th class="px-3 py-2">Google Live</th>
+                  <th class="px-3 py-2">Manual Override</th>
+                  <th class="px-3 py-2">Final Rate</th>
+                </tr>
+              </thead>
+              <tbody id="ratesTableBody" class="divide-y divide-slate-100"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <button onclick="saveSetup()" class="w-full theme-btn font-semibold py-2.5 rounded-xl shadow-xs">
+          Save Trip Setup & Rates to Google Sheet
+        </button>
+      </div>
+    </section>
+
+    <!-- TAB 4: BUILT-IN TUTORIAL & SCRIPT COPIER -->
+    <section id="view-guide" class="hidden space-y-6">
+      <div class="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs space-y-5">
+        <div>
+          <h2 class="text-lg font-bold text-slate-900">📖 How to Set Up & Share a Trip</h2>
+          <p class="text-xs text-slate-500 mt-1">Only <b>one person</b> (the trip organizer) needs to do Steps 1–3. Friends just click your Share Link!</p>
+        </div>
+
+        <div class="space-y-4 text-sm text-slate-700">
+          <div class="p-4 rounded-xl bg-slate-50 border border-slate-200">
+            <div class="font-bold text-slate-900 mb-1">Step 1: Create a Blank Google Sheet</div>
+            <p class="text-xs text-slate-600">Open <a href="https://sheets.new" target="_blank" class="text-blue-600 underline font-semibold">sheets.new</a> on your computer and name it after your trip (e.g. <i>2026 Japan Trip</i>).</p>
+          </div>
+
+          <div class="p-4 rounded-xl bg-slate-50 border border-slate-200">
+            <div class="flex justify-between items-center mb-1">
+              <div class="font-bold text-slate-900">Step 2: Paste the Backend Script</div>
+              <button onclick="copyAppsScript()" id="copyScriptBtn" class="theme-btn text-xs px-3 py-1 rounded-lg font-semibold">📋 Copy Script Code</button>
+            </div>
+            <p class="text-xs text-slate-600">In your Google Sheet menu, click <b>Extensions → Apps Script</b>. Delete everything inside <code>Code.gs</code>, paste the copied code, and click the <b>Save</b> (💾) icon.</p>
+          </div>
+
+          <div class="p-4 rounded-xl bg-slate-50 border border-slate-200">
+            <div class="font-bold text-slate-900 mb-1">Step 3: Deploy as Web App</div>
+            <ol class="list-decimal list-inside text-xs text-slate-600 space-y-1">
+              <li>Click <b>Deploy → New deployment</b> (top right of Apps Script).</li>
+              <li>Click the gear icon ⚙️ next to <i>Select type</i> and choose <b>Web app</b>.</li>
+              <li>Set <b>Execute as:</b> <code>Me</code> and <b>Who has access:</b> <code>Anyone</code>.</li>
+              <li>Click <b>Deploy</b> → Authorize access (<i>Advanced → Go to Untitled project → Allow</i>) → Copy the <b>Web app URL</b>.</li>
+            </ol>
+          </div>
+
+          <div class="p-4 rounded-xl bg-slate-50 border border-slate-200">
+            <div class="font-bold text-slate-900 mb-1">Step 4: Connect & Share With Friends</div>
+            <p class="text-xs text-slate-600">Click <b>+ Trip</b> in the top bar of this page, paste your Web App URL, and configure your trip in <b>Trip Setup & FX</b>. Then click <b>Share Link</b> to send the magic link to your group chat—no setup needed for them!</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Modal: Add / Manage Trip Connections -->
+  <div id="tripModal" class="fixed inset-0 bg-slate-900/50 z-40 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl space-y-4">
+      <div class="flex justify-between items-center">
+        <h3 class="font-bold text-slate-900">Manage Connected Trips</h3>
+        <button onclick="closeTripModal()" class="text-slate-400 hover:text-slate-600 text-lg">✕</button>
+      </div>
+
+      <div id="savedTripsList" class="space-y-2 max-h-40 overflow-y-auto"></div>
+
+      <div class="border-t border-slate-100 pt-3 space-y-3">
+        <label class="block text-xs font-bold text-slate-700">Connect New Google Sheet Web App</label>
+        <input type="text" id="newTripLabel" placeholder="Nickname (e.g. Kyoto Dec 2026)" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" />
+        <input type="url" id="newTripUrl" placeholder="https://script.google.com/macros/s/.../exec" class="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" />
+        <button onclick="addNewTrip()" class="w-full theme-btn font-medium py-2 rounded-xl text-sm">
+          Connect & Load Trip
+        </button>
+      </div>
+    </div>
+  </div>
+
+<script>
+  // --- STATE ---
+  let savedTrips = JSON.parse(localStorage.getItem('tripsplit_trips') || '[]');
+  let tripPins = JSON.parse(localStorage.getItem('tripsplit_pins') || '{}');
+  let activeApiUrl = '';
+  let appData = null;
+  
+  // Expense Form State
+  let selectedPayer = '';
+  let isMultiPayer = false;
+  let activePayers = new Set();
+  let pinnedPayers = {}; // { "Name": amount }
+  
+  let activeSharers = new Set();
+  let pinnedSplits = {}; // { "Name": amount }
+  let chartInstance = null;
+
+  // --- THEME ---
+  function setTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('tripsplit_theme', theme);
+    document.getElementById('themeSelector').value = theme;
+  }
+
+  // --- INITIALIZATION ---
+  window.addEventListener('DOMContentLoaded', () => {
+    const savedTheme = localStorage.getItem('tripsplit_theme') || 'blue';
+    setTheme(savedTheme);
+    document.getElementById('txDate').valueAsDate = new Date();
+    
+    const params = new URLSearchParams(window.location.search);
+    const sharedApi = params.get('api');
+    if (sharedApi) {
+      if (!savedTrips.some(t => t.url === sharedApi)) {
+        savedTrips.push({ name: 'Shared Trip', url: sharedApi });
+        localStorage.setItem('tripsplit_trips', JSON.stringify(savedTrips));
+      }
+      activeApiUrl = sharedApi;
+    } else if (savedTrips.length > 0) {
+      activeApiUrl = localStorage.getItem('tripsplit_active') || savedTrips[0].url;
+    }
+
+    renderTripSelector();
+    if (activeApiUrl) {
+      switchTrip(activeApiUrl);
+    }
+  });
+
+  // --- TRIP SWITCHER & API ---
+  function renderTripSelector() {
+    const sel = document.getElementById('tripSelector');
+    sel.innerHTML = '<option value="">-- Select Trip --</option>';
+    savedTrips.forEach(t => {
+      const opt = document.createElement('option');
+      opt.value = t.url;
+      opt.textContent = t.name;
+      if (t.url === activeApiUrl) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  }
+
+  function openTripModal() {
+    const list = document.getElementById('savedTripsList');
+    list.innerHTML = savedTrips.length === 0 
+      ? '<p class="text-xs text-slate-400">No trips saved yet.</p>' 
+      : '';
+    savedTrips.forEach((t, idx) => {
+      const div = document.createElement('div');
+      div.className = 'flex items-center justify-between bg-slate-50 px-3 py-2 rounded-lg text-xs';
+      div.innerHTML = `
+        <button onclick="switchTrip('${t.url}'); closeTripModal();" class="font-semibold hover:underline truncate text-left flex-1" style="color: var(--primary)">${t.name}</button>
+        <button onclick="removeTrip(${idx})" class="text-rose-500 ml-2">Remove</button>
+      `;
+      list.appendChild(div);
+    });
+    document.getElementById('tripModal').classList.remove('hidden');
+  }
+
+  function closeTripModal() {
+    document.getElementById('tripModal').classList.add('hidden');
+  }
+
+  function addNewTrip() {
+    const name = document.getElementById('newTripLabel').value.trim() || 'Trip ' + (savedTrips.length + 1);
+    const url = document.getElementById('newTripUrl').value.trim();
+    if (!url.startsWith('https://script.google.com/')) {
+      alert('Please enter a valid Google Apps Script Web App URL.');
+      return;
+    }
+    savedTrips = savedTrips.filter(t => t.url !== url);
+    savedTrips.push({ name, url });
+    localStorage.setItem('tripsplit_trips', JSON.stringify(savedTrips));
+    document.getElementById('newTripLabel').value = '';
+    document.getElementById('newTripUrl').value = '';
+    closeTripModal();
+    switchTrip(url);
+  }
+
+  function removeTrip(idx) {
+    savedTrips.splice(idx, 1);
+    localStorage.setItem('tripsplit_trips', JSON.stringify(savedTrips));
+    if (savedTrips.length === 0) {
+      activeApiUrl = '';
+      location.reload();
+    } else {
+      openTripModal();
+      renderTripSelector();
+    }
+  }
+
+  function copyShareLink() {
+    const shareUrl = `${window.location.origin}${window.location.pathname}?api=${encodeURIComponent(activeApiUrl)}`;
+    navigator.clipboard.writeText(shareUrl).then(() => {
+      const btn = document.getElementById('shareBtn');
+      btn.textContent = 'Copied!';
+      setTimeout(() => btn.textContent = 'Share Link', 2000);
+    });
+  }
+
+  async function switchTrip(url) {
+    if (!url) return;
+    activeApiUrl = url;
+    localStorage.setItem('tripsplit_active', url);
+    renderTripSelector();
+    await refreshData();
+    switchTab('expenses');
+  }
+
+  async function apiCall(payload = null) {
+    const loader = document.getElementById('loader');
+    loader.classList.remove('hidden');
+    try {
+      const pin = tripPins[activeApiUrl] || '';
+      const bodyPayload = payload ? { ...payload, pin } : { action: 'getAll', pin };
+      const res = await fetch(activeApiUrl, {
+        method: 'POST',
+        body: JSON.stringify(bodyPayload)
+      });
+      const json = await res.json();
+
+      if (json.status === 'auth_required') {
+        loader.classList.add('hidden');
+        const enteredPin = prompt('This trip is protected. Enter the Trip PIN:');
+        if (enteredPin !== null) {
+          tripPins[activeApiUrl] = enteredPin.trim();
+          localStorage.setItem('tripsplit_pins', JSON.stringify(tripPins));
+          return apiCall(payload);
+        }
+        return;
+      }
+
+      if (json.status !== 'ok') throw new Error(json.message);
+      appData = json.data;
+
+      if (appData.config.tripPin) {
+        tripPins[activeApiUrl] = appData.config.tripPin;
+        localStorage.setItem('tripsplit_pins', JSON.stringify(tripPins));
+      }
+
+      const tripEntry = savedTrips.find(t => t.url === activeApiUrl);
+      if (tripEntry && appData.config.tripName) {
+        // Automatically push the typed nickname to the sheet if the sheet still has the default "New Trip" name
+        if (appData.config.tripName === 'New Trip' && tripEntry.name && tripEntry.name !== 'New Trip' && tripEntry.name !== 'Shared Trip') {
+          appData.config.tripName = tripEntry.name;
+          apiCall({ action: 'saveConfig', config: appData.config, rates: appData.rates });
+          return;
+        }
+        tripEntry.name = appData.config.tripName;
+        localStorage.setItem('tripsplit_trips', JSON.stringify(savedTrips));
+        renderTripSelector();
+      }
+      renderAll();
+    } catch (err) {
+      alert('Connection error: ' + err.message);
+    } finally {
+      loader.classList.add('hidden');
+    }
+  }
+
+  function refreshData() {
+    return apiCall(null);
+  }
+
+  // --- RENDERING ---
+  function switchTab(tab) {
+    ['expenses', 'summary', 'setup', 'guide'].forEach(t => {
+      document.getElementById(`view-${t}`).classList.toggle('hidden', t !== tab);
+      const btn = document.getElementById(`tab-${t}`);
+      if (btn) {
+        btn.classList.toggle('theme-tab-active', t === tab);
+        btn.classList.toggle('border-transparent', t !== tab);
+        btn.classList.toggle('text-white/60', t !== tab);
+      }
+    });
+    if (tab === 'guide' && !appData) {
+      document.getElementById('emptyState').classList.add('hidden');
+    } else if (!appData) {
+      document.getElementById('emptyState').classList.remove('hidden');
+    }
+    if (tab === 'summary' && appData) renderSummary();
+  }
+
+  function renderAll() {
+    if (!appData) return;
+    document.getElementById('emptyState').classList.add('hidden');
+    ['tab-expenses', 'tab-summary', 'tab-setup', 'shareBtn', 'syncBtn'].forEach(id => {
+      document.getElementById(id).classList.remove('hidden');
+    });
+
+    const { config, rates, transactions } = appData;
+    document.getElementById('displayTripName').textContent = config.tripName;
+    document.getElementById('displayTripDate').textContent = config.tripDate || 'Collaborative Trip Sheet';
+    document.querySelectorAll('.homeCurrLabel').forEach(el => el.textContent = config.homeCurrency);
+
+    const totalHome = transactions.reduce((sum, tx) => sum + (Number(tx.homeAmount) || 0), 0);
+    document.getElementById('displayTotalSpend').textContent = `${config.homeCurrency} ${totalHome.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+
+    // Populate Form Dropdowns
+    const catSel = document.getElementById('txCategory');
+    catSel.innerHTML = config.categories.map(c => `<option value="${c}">${c}</option>`).join('');
+
+    const currSel = document.getElementById('txCurrency');
+    const isEditing = Boolean(document.getElementById('txId').value);
+    const prevCurr = currSel.value;
+    currSel.innerHTML = rates.map(r => `<option value="${r.currency}">${r.currency}</option>`).join('');
+    
+    // Always enforce Default Expense Currency when not editing
+    if (!isEditing) {
+      currSel.value = rates.some(r => r.currency === config.defaultCurrency) ? config.defaultCurrency : (rates[0]?.currency || '');
+    } else if (prevCurr) {
+      currSel.value = prevCurr;
+    }
+
+    if (!selectedPayer || !config.participants.includes(selectedPayer)) {
+      selectedPayer = config.participants[0] || '';
+    }
+    if (activePayers.size === 0) {
+      config.participants.forEach(p => activePayers.add(p));
+    }
+    if (activeSharers.size === 0) {
+      config.participants.forEach(p => activeSharers.add(p));
+    }
+
+    renderPayerUI();
+    renderSharerUI();
+    renderTransactions();
+    renderSetupForm();
+    if (!document.getElementById('view-summary').classList.contains('hidden')) {
+      renderSummary();
+    }
+  }
+
+  // --- GENERIC PIN & AUTO-EVEN ENGINE (FOR BOTH PAYERS AND SHARERS) ---
+  function computeBalancedDistribution(total, selectedList, pinnedMap) {
+    const result = {};
+    let pinnedSum = 0;
+    const unpinned = [];
+
+    selectedList.forEach(p => {
+      if (pinnedMap[p] !== undefined) {
+        result[p] = pinnedMap[p];
+        pinnedSum += pinnedMap[p];
+      } else {
+        unpinned.push(p);
+      }
+    });
+
+    const remaining = Math.max(0, total - pinnedSum);
+    if (unpinned.length > 0) {
+      const evenShare = remaining / unpinned.length;
+      let distributed = 0;
+      unpinned.forEach((p, idx) => {
+        if (idx === unpinned.length - 1) {
+          result[p] = Number((remaining - distributed).toFixed(2));
+        } else {
+          const rounded = Number(evenShare.toFixed(2));
+          result[p] = rounded;
+          distributed += rounded;
+        }
+      });
+    }
+    return result;
+  }
+
+  function onAmountInput() {
+    recalcPayers();
+    recalcSplits();
+  }
+
+  // --- PAYER UI & AUTO-REMAINDER ---
+  function renderPayerUI() {
+    const participants = appData.config.participants;
+    const singlePills = document.getElementById('payerPills');
+    const multiPills = document.getElementById('multiPayerSelectPills');
+    const multiBox = document.getElementById('multiPayerInputs');
+    const resetBtn = document.getElementById('resetPayerPinsBtn');
+
+    if (!isMultiPayer) {
+      singlePills.classList.remove('hidden');
+      multiPills.classList.add('hidden');
+      multiBox.classList.add('hidden');
+      resetBtn.classList.add('hidden');
+
+      singlePills.innerHTML = participants.map(p => {
+        const active = selectedPayer === p;
+        return `<button type="button" onclick="selectSinglePayer('${p}')" class="px-3 py-1.5 rounded-full text-xs font-semibold border transition ${active ? 'pill-active' : 'pill-inactive'}">${p}</button>`;
+      }).join('');
+    } else {
+      singlePills.classList.add('hidden');
+      multiPills.classList.remove('hidden');
+      multiBox.classList.remove('hidden');
+      resetBtn.classList.remove('hidden');
+
+      multiPills.innerHTML = participants.map(p => {
+        const active = activePayers.has(p);
+        return `<button type="button" onclick="toggleMultiPayerPerson('${p}')" class="px-3 py-1.5 rounded-full text-xs font-semibold border transition ${active ? 'pill-active' : 'pill-inactive'}">${p}</button>`;
+      }).join('');
+      recalcPayers();
+    }
+  }
+
+  function selectSinglePayer(name) {
+    isMultiPayer = false;
+    document.getElementById('multiPayerToggle').checked = false;
+    selectedPayer = name;
+    renderPayerUI();
+  }
+
+  function toggleMultiPayer() {
+    isMultiPayer = document.getElementById('multiPayerToggle').checked;
+    if (isMultiPayer && activePayers.size === 0) {
+      appData.config.participants.forEach(p => activePayers.add(p));
+    }
+    renderPayerUI();
+  }
+
+  function toggleMultiPayerPerson(name) {
+    if (activePayers.has(name)) {
+      if (activePayers.size === 1) return;
+      activePayers.delete(name);
+      delete pinnedPayers[name];
+    } else {
+      activePayers.add(name);
+    }
+    renderPayerUI();
+  }
+
+  function setPinnedPayer(name, val) {
+    if (val === '') delete pinnedPayers[name];
+    else pinnedPayers[name] = Number(val);
+    recalcPayers();
+  }
+
+  function unpinPayer(name) {
+    delete pinnedPayers[name];
+    recalcPayers();
+  }
+
+  function resetPayerPins() {
+    pinnedPayers = {};
+    recalcPayers();
+  }
+
+  function computeCurrentPayers() {
+    const total = Number(document.getElementById('txAmount').value) || 0;
+    if (!isMultiPayer) return { [selectedPayer]: total };
+    const payersList = appData.config.participants.filter(p => activePayers.has(p));
+    return computeBalancedDistribution(total, payersList, pinnedPayers);
+  }
+
+  function recalcPayers() {
+    if (!isMultiPayer) {
+      validateAmounts();
+      return;
+    }
+    const payers = computeCurrentPayers();
+    const payersList = appData.config.participants.filter(p => activePayers.has(p));
+    const curr = document.getElementById('txCurrency').value;
+    const container = document.getElementById('multiPayerInputs');
+
+    container.innerHTML = payersList.map(p => {
+      const isPinned = pinnedPayers[p] !== undefined;
+      const val = payers[p] !== undefined ? payers[p] : 0;
+      return `
+        <div class="flex items-center justify-between gap-2 bg-white px-3 py-1.5 rounded-lg border ${isPinned ? 'border-amber-300 bg-amber-50/30' : 'border-slate-200'}">
+          <div class="flex items-center gap-1.5">
+            <span class="text-xs font-medium text-slate-700">${p}</span>
+            ${isPinned 
+              ? `<button type="button" onclick="unpinPayer('${p}')" title="Unlock back to auto-remainder" class="text-[11px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded font-semibold">🔒 Pinned</button>` 
+              : `<span class="text-[10px] text-slate-400">Auto-remainder</span>`}
+          </div>
+          <div class="flex items-center gap-1">
+            <span class="text-[11px] text-slate-400">${curr}</span>
+            <input type="number" step="0.01" min="0" value="${val}" onchange="setPinnedPayer('${p}', this.value)" class="w-24 text-right text-xs font-bold border border-slate-200 rounded px-2 py-1 focus:border-blue-500 focus:outline-none" />
+          </div>
+        </div>
+      `;
+    }).join('');
+    validateAmounts();
+  }
+
+  // --- SHARER UI & AUTO-REMAINDER ---
+  function renderSharerUI() {
+    const participants = appData.config.participants;
+    const pills = document.getElementById('sharerPills');
+    pills.innerHTML = participants.map(p => {
+      const active = activeSharers.has(p);
+      return `<button type="button" onclick="toggleSharer('${p}')" class="px-3 py-1.5 rounded-full text-xs font-semibold border transition ${active ? 'pill-active' : 'pill-inactive'}">${p}</button>`;
+    }).join('');
+    recalcSplits();
+  }
+
+  function toggleSharer(name) {
+    if (activeSharers.has(name)) {
+      if (activeSharers.size === 1) return;
+      activeSharers.delete(name);
+      delete pinnedSplits[name];
+    } else {
+      activeSharers.add(name);
+    }
+    renderSharerUI();
+  }
+
+  function selectAllSharers() {
+    appData.config.participants.forEach(p => activeSharers.add(p));
+    renderSharerUI();
+  }
+
+  function resetPins() {
+    pinnedSplits = {};
+    recalcSplits();
+  }
+
+  function setPinnedAmount(name, val) {
+    if (val === '') delete pinnedSplits[name];
+    else pinnedSplits[name] = Number(val);
+    recalcSplits();
+  }
+
+  function unpinPerson(name) {
+    delete pinnedSplits[name];
+    recalcSplits();
+  }
+
+  function computeCurrentSplits() {
+    const total = Number(document.getElementById('txAmount').value) || 0;
+    const sharers = appData.config.participants.filter(p => activeSharers.has(p));
+    return computeBalancedDistribution(total, sharers, pinnedSplits);
+  }
+
+  function recalcSplits() {
+    const splits = computeCurrentSplits();
+    const sharers = appData.config.participants.filter(p => activeSharers.has(p));
+    const curr = document.getElementById('txCurrency').value;
+    const container = document.getElementById('splitBreakdown');
+
+    container.innerHTML = sharers.map(p => {
+      const isPinned = pinnedSplits[p] !== undefined;
+      const val = splits[p] !== undefined ? splits[p] : 0;
+      return `
+        <div class="flex items-center justify-between gap-2 bg-white px-3 py-1.5 rounded-lg border ${isPinned ? 'border-amber-300 bg-amber-50/30' : 'border-slate-200'}">
+          <div class="flex items-center gap-1.5">
+            <span class="text-xs font-medium text-slate-700">${p}</span>
+            ${isPinned 
+              ? `<button type="button" onclick="unpinPerson('${p}')" title="Click to unlock back to auto-even" class="text-[11px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded font-semibold">🔒 Pinned</button>` 
+              : `<span class="text-[10px] text-slate-400">Auto-even</span>`}
+          </div>
+          <div class="flex items-center gap-1">
+            <span class="text-[11px] text-slate-400">${curr}</span>
+            <input type="number" step="0.01" min="0" value="${val}" onchange="setPinnedAmount('${p}', this.value)" class="w-24 text-right text-xs font-bold border border-slate-200 rounded px-2 py-1 focus:border-blue-500 focus:outline-none" />
+          </div>
+        </div>
+      `;
+    }).join('');
+    validateAmounts();
+  }
+
+  function validateAmounts() {
+    const total = Number(document.getElementById('txAmount').value) || 0;
+    const splits = computeCurrentSplits();
+    const splitSum = Object.values(splits).reduce((a, b) => a + b, 0);
+    const splitDiff = Math.abs(total - splitSum);
+
+    const splitErr = document.getElementById('splitValidation');
+    if (total > 0 && splitDiff > 0.02) {
+      splitErr.textContent = `Split total (${splitSum.toFixed(2)}) does not match expense total (${total.toFixed(2)}).`;
+      splitErr.classList.remove('hidden');
+    } else {
+      splitErr.classList.add('hidden');
+    }
+
+    const payerErr = document.getElementById('payerValidation');
+    if (isMultiPayer && total > 0) {
+      const payers = computeCurrentPayers();
+      const paidSum = Object.values(payers).reduce((a, b) => a + b, 0);
+      if (Math.abs(total - paidSum) > 0.02) {
+        payerErr.textContent = `Paid total (${paidSum.toFixed(2)}) must equal expense total (${total.toFixed(2)}).`;
+        payerErr.classList.remove('hidden');
+        return false;
+      }
+    }
+    payerErr.classList.add('hidden');
+    return splitDiff <= 0.02;
+  }
+
+  // --- SUBMIT, EDIT, DELETE TRANSACTIONS ---
+  async function submitExpense(e) {
+    e.preventDefault();
+    if (!validateAmounts()) {
+      alert('Please ensure Paid and Split totals match the expense amount.');
+      return;
+    }
+    const total = Number(document.getElementById('txAmount').value);
+    const payers = computeCurrentPayers();
+    Object.keys(payers).forEach(k => { if (payers[k] <= 0) delete payers[k]; });
+    
+    const splits = computeCurrentSplits();
+    const existingId = document.getElementById('txId').value;
+
+    const tx = {
+      id: existingId || 'tx_' + Date.now(),
+      date: document.getElementById('txDate').value,
+      item: document.getElementById('txItem').value.trim(),
+      category: document.getElementById('txCategory').value,
+      amount: total,
+      currency: document.getElementById('txCurrency').value,
+      payers,
+      splits,
+      notes: document.getElementById('txNotes').value.trim()
+    };
+
+    resetForm();
+    await apiCall({ action: existingId ? 'updateTransaction' : 'addTransaction', tx });
+  }
+
+  function editTx(id) {
+    const tx = appData.transactions.find(t => t.id === id);
+    if (!tx) return;
+    document.getElementById('formTitle').textContent = 'Edit Expense';
+    document.getElementById('cancelEditBtn').classList.remove('hidden');
+    document.getElementById('txId').value = tx.id;
+    document.getElementById('txItem').value = tx.item;
+    document.getElementById('txCategory').value = tx.category;
+    document.getElementById('txDate').value = tx.date;
+    document.getElementById('txAmount').value = tx.amount;
+    document.getElementById('txCurrency').value = tx.currency;
+    document.getElementById('txNotes').value = tx.notes || '';
+
+    const payerKeys = Object.keys(tx.payers);
+    if (payerKeys.length > 1) {
+      isMultiPayer = true;
+      document.getElementById('multiPayerToggle').checked = true;
+      activePayers = new Set(payerKeys);
+      pinnedPayers = { ...tx.payers };
+    } else {
+      isMultiPayer = false;
+      document.getElementById('multiPayerToggle').checked = false;
+      selectedPayer = payerKeys[0];
+      pinnedPayers = {};
+    }
+
+    activeSharers = new Set(Object.keys(tx.splits));
+    pinnedSplits = { ...tx.splits };
+    renderPayerUI();
+    renderSharerUI();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function resetForm() {
+    document.getElementById('formTitle').textContent = 'Add New Expense';
+    document.getElementById('cancelEditBtn').classList.add('hidden');
+    document.getElementById('txId').value = '';
+    document.getElementById('txItem').value = '';
+    document.getElementById('txAmount').value = '';
+    document.getElementById('txNotes').value = '';
+    document.getElementById('txDate').valueAsDate = new Date();
+    
+    if (appData) {
+      document.getElementById('txCategory').selectedIndex = 0;
+      const defCurr = appData.config.defaultCurrency;
+      if (appData.rates.some(r => r.currency === defCurr)) {
+        document.getElementById('txCurrency').value = defCurr;
+      }
+      activePayers = new Set(appData.config.participants);
+      activeSharers = new Set(appData.config.participants);
+    }
+
+    isMultiPayer = false;
+    document.getElementById('multiPayerToggle').checked = false;
+    pinnedPayers = {};
+    pinnedSplits = {};
+    if (appData) {
+      renderPayerUI();
+      renderSharerUI();
+    }
+  }
+
+  async function deleteTx(id) {
+    if (!confirm('Delete this expense?')) return;
+    await apiCall({ action: 'deleteTransaction', id });
+  }
+
+  function renderTransactions() {
+    const query = document.getElementById('searchTx').value.toLowerCase();
+    const list = document.getElementById('txList');
+    const txs = [...appData.transactions].reverse().filter(t => 
+      t.item.toLowerCase().includes(query) || t.category.toLowerCase().includes(query)
+    );
+    document.getElementById('txCount').textContent = txs.length;
+
+    if (txs.length === 0) {
+      list.innerHTML = '<div class="p-8 text-center text-sm text-slate-400">No expenses logged yet.</div>';
+      return;
+    }
+
+    const homeCurr = appData.config.homeCurrency;
+    list.innerHTML = txs.map(tx => {
+      const paidBy = Object.entries(tx.payers).map(([k, v]) => Object.keys(tx.payers).length > 1 ? `${k} (${v})` : k).join(', ');
+      const splitWith = Object.keys(tx.splits).join(', ');
+      return `
+        <div class="p-4 hover:bg-slate-50 transition flex justify-between items-start gap-3">
+          <div class="space-y-1">
+            <div class="flex items-center gap-2">
+              <span class="text-[11px] font-semibold theme-badge px-2 py-0.5 rounded-md">${tx.category}</span>
+              <span class="text-xs text-slate-400">${tx.date}</span>
+            </div>
+            <div class="font-bold text-slate-800 text-sm">${tx.item}</div>
+            <div class="text-xs text-slate-500">Paid by <span class="font-semibold text-slate-700">${paidBy}</span> • Split: ${splitWith}</div>
+            ${tx.notes ? `<div class="text-[11px] text-slate-400 italic">${tx.notes}</div>` : ''}
+          </div>
+          <div class="text-right shrink-0">
+            <div class="font-bold text-slate-900 text-sm">${tx.currency} ${tx.amount.toLocaleString(undefined, {minimumFractionDigits: 2})}</div>
+            ${tx.currency !== homeCurr ? `<div class="text-xs text-slate-400">≈ ${homeCurr} ${tx.homeAmount.toLocaleString(undefined, {minimumFractionDigits: 2})}</div>` : ''}
+            <div class="mt-2 flex justify-end gap-2 no-print">
+              <button onclick="editTx('${tx.id}')" class="text-xs hover:underline" style="color: var(--primary)">Edit</button>
+              <button onclick="deleteTx('${tx.id}')" class="text-xs text-rose-500 hover:underline">Delete</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  // --- SUMMARY, SETTLEMENT & EXPORT ---
+  function renderSummary() {
+    const { config, transactions } = appData;
+    const participants = config.participants;
+    const paidMap = {};
+    const splitMap = {};
+    const catMap = {};
+
+    participants.forEach(p => { paidMap[p] = 0; splitMap[p] = 0; });
+    config.categories.forEach(c => { catMap[c] = 0; });
+
+    transactions.forEach(tx => {
+      const fx = tx.amount > 0 ? (tx.homeAmount / tx.amount) : 1;
+      catMap[tx.category] = (catMap[tx.category] || 0) + tx.homeAmount;
+
+      Object.entries(tx.payers).forEach(([p, amt]) => {
+        paidMap[p] = (paidMap[p] || 0) + (amt * fx);
+      });
+      Object.entries(tx.splits).forEach(([p, amt]) => {
+        splitMap[p] = (splitMap[p] || 0) + (amt * fx);
+      });
+    });
+
+    const tbody = document.getElementById('balanceTableBody');
+    const balances = [];
+    tbody.innerHTML = participants.map(p => {
+      const paid = paidMap[p] || 0;
+      const split = splitMap[p] || 0;
+      const net = paid - split;
+      balances.push({ name: p, net });
+      const netColor = net > 0.01 ? 'text-emerald-600' : (net < -0.01 ? 'text-rose-600' : 'text-slate-500');
+      return `
+        <tr>
+          <td class="px-4 py-2.5 font-semibold text-slate-800">${p}</td>
+          <td class="px-4 py-2.5 text-right text-slate-600">${paid.toFixed(2)}</td>
+          <td class="px-4 py-2.5 text-right text-slate-600">${split.toFixed(2)}</td>
+          <td class="px-4 py-2.5 text-right font-bold ${netColor}">${net >= 0 ? '+' : ''}${net.toFixed(2)}</td>
+        </tr>
+      `;
+    }).join('');
+
+    const debtors = balances.filter(b => b.net < -0.01).map(b => ({ name: b.name, amt: -b.net })).sort((a, b) => b.amt - a.amt);
+    const creditors = balances.filter(b => b.net > 0.01).map(b => ({ name: b.name, amt: b.net })).sort((a, b) => b.amt - a.amt);
+    const transfers = [];
+    let i = 0, j = 0;
+    while (i < debtors.length && j < creditors.length) {
+      const settle = Math.min(debtors[i].amt, creditors[j].amt);
+      transfers.push({ from: debtors[i].name, to: creditors[j].name, amt: settle });
+      debtors[i].amt -= settle;
+      creditors[j].amt -= settle;
+      if (debtors[i].amt < 0.01) i++;
+      if (creditors[j].amt < 0.01) j++;
+    }
+
+    const transferBox = document.getElementById('settlementTransfers');
+    transferBox.innerHTML = transfers.length === 0 
+      ? '<p class="text-xs text-slate-400">Everyone is settled up!</p>'
+      : transfers.map(t => `
+        <div class="flex items-center justify-between bg-slate-50 px-4 py-2.5 rounded-xl border border-slate-200 text-sm">
+          <div><span class="font-bold text-rose-600">${t.from}</span> <span class="text-slate-400 mx-1">pays →</span> <span class="font-bold text-emerald-600">${t.to}</span></div>
+          <div class="font-bold text-slate-900">${config.homeCurrency} ${t.amt.toFixed(2)}</div>
+        </div>
+      `).join('');
+
+    const catBody = document.getElementById('categoryTableBody');
+    const labels = [], values = [];
+    catBody.innerHTML = Object.entries(catMap).filter(([, v]) => v > 0).map(([cat, val]) => {
+      labels.push(cat);
+      values.push(Number(val.toFixed(2)));
+      return `
+        <tr>
+          <td class="px-4 py-2.5 text-slate-700 font-medium">${cat}</td>
+          <td class="px-4 py-2.5 text-right font-bold text-slate-900">${val.toFixed(2)}</td>
+        </tr>
+      `;
+    }).join('');
+
+    if (chartInstance) chartInstance.destroy();
+    const ctx = document.getElementById('categoryChart').getContext('2d');
+    chartInstance = new Chart(ctx, {
+      type: 'doughnut',
+      data: {
+        labels,
+        datasets: [{
+          data: values,
+          backgroundColor: ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#64748b']
+        }]
+      },
+      options: { plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } } } }
+    });
+  }
+
+  function exportCSV() {
+    const { config, transactions } = appData;
+    const ps = config.participants;
+    const headers = ['Date', 'Item', 'Category', 'Amount', 'Currency', `Home (${config.homeCurrency})`, ...ps.map(p => `Paid: ${p}`), ...ps.map(p => `Split: ${p}`), 'Notes'];
+    
+    const rows = transactions.map(tx => [
+      tx.date,
+      `"${tx.item.replace(/"/g, '""')}"`,
+      `"${tx.category}"`,
+      tx.amount,
+      tx.currency,
+      tx.homeAmount,
+      ...ps.map(p => tx.payers[p] || 0),
+      ...ps.map(p => tx.splits[p] || 0),
+      `"${(tx.notes || '').replace(/"/g, '""')}"`
+    ]);
+
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `${config.tripName.replace(/\s+/g, '_')}_Expenses.csv`;
+    link.click();
+  }
+
+  function printFullReport() {
+    const { config, transactions } = appData;
+    const table = document.getElementById('printLedgerTable');
+    table.innerHTML = `
+      <thead>
+        <tr class="bg-slate-100">
+          <th class="border p-1.5 text-left">Date</th>
+          <th class="border p-1.5 text-left">Item</th>
+          <th class="border p-1.5 text-left">Category</th>
+          <th class="border p-1.5 text-right">Orig Amt</th>
+          <th class="border p-1.5 text-right">Home (${config.homeCurrency})</th>
+          <th class="border p-1.5 text-left">Paid By</th>
+          <th class="border p-1.5 text-left">Split</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${transactions.map(tx => `
+          <tr>
+            <td class="border p-1.5">${tx.date}</td>
+            <td class="border p-1.5">${tx.item}</td>
+            <td class="border p-1.5">${tx.category}</td>
+            <td class="border p-1.5 text-right">${tx.currency} ${tx.amount.toFixed(2)}</td>
+            <td class="border p-1.5 text-right">${tx.homeAmount.toFixed(2)}</td>
+            <td class="border p-1.5">${Object.entries(tx.payers).map(([k,v])=>`${k}:${v}`).join(', ')}</td>
+            <td class="border p-1.5">${Object.entries(tx.splits).map(([k,v])=>`${k}:${v}`).join(', ')}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    `;
+    window.print();
+  }
+
+  // --- TRIP SETUP & FX ---
+  function renderSetupForm() {
+    const { config, rates } = appData;
+    document.getElementById('cfgTripName').value = config.tripName;
+    document.getElementById('cfgTripDate').value = config.tripDate;
+    document.getElementById('cfgHomeCurrency').value = config.homeCurrency;
+    document.getElementById('cfgTripPin').value = config.tripPin || '';
+    document.getElementById('cfgParticipants').value = config.participants.join(', ');
+    document.getElementById('cfgCategories').value = config.categories.join(', ');
+
+    const defSel = document.getElementById('cfgDefaultCurrency');
+    const currList = rates.map(r => r.currency).filter(Boolean);
+    if (config.defaultCurrency && !currList.includes(config.defaultCurrency)) {
+      currList.unshift(config.defaultCurrency);
+    }
+    defSel.innerHTML = currList.map(c => `<option value="${c}" ${c === config.defaultCurrency ? 'selected' : ''}>${c}</option>`).join('');
+
+    const tbody = document.getElementById('ratesTableBody');
+    tbody.innerHTML = rates.map((r, idx) => `
+      <tr>
+        <td class="px-3 py-2"><input type="text" value="${r.currency}" data-rate-curr="${idx}" class="w-16 uppercase font-bold border border-slate-200 rounded px-1.5 py-1" /></td>
+        <td class="px-3 py-2 text-slate-500">${r.googleRate.toFixed(4)}</td>
+        <td class="px-3 py-2"><input type="number" step="0.0001" value="${r.manualRate}" data-rate-manual="${idx}" placeholder="Auto" class="w-24 border border-slate-200 rounded px-1.5 py-1" /></td>
+        <td class="px-3 py-2 font-bold text-slate-800">${r.finalRate.toFixed(4)}</td>
+      </tr>
+    `).join('');
+  }
+
+  function addCurrencyRow() {
+    appData.rates.push({ currency: '', googleRate: 1, manualRate: '', finalRate: 1 });
+    renderSetupForm();
+  }
+
+  async function saveSetup() {
+    const updatedConfig = {
+      tripName: document.getElementById('cfgTripName').value.trim() || 'My Trip',
+      tripDate: document.getElementById('cfgTripDate').value.trim(),
+      homeCurrency: document.getElementById('cfgHomeCurrency').value.trim().toUpperCase() || 'HKD',
+      defaultCurrency: document.getElementById('cfgDefaultCurrency').value.trim().toUpperCase() || 'JPY',
+      tripPin: document.getElementById('cfgTripPin').value.trim(),
+      participants: document.getElementById('cfgParticipants').value.split(',').map(s => s.trim()).filter(Boolean),
+      categories: document.getElementById('cfgCategories').value.split(',').map(s => s.trim()).filter(Boolean)
+    };
+
+    const currInputs = document.querySelectorAll('[data-rate-curr]');
+    const manualInputs = document.querySelectorAll('[data-rate-manual]');
+    const updatedRates = [];
+    currInputs.forEach((inp, i) => {
+      const c = inp.value.trim().toUpperCase();
+      if (c) {
+        updatedRates.push({
+          currency: c,
+          manualRate: manualInputs[i].value.trim()
+        });
+      }
+    });
+
+    await apiCall({ action: 'saveConfig', config: updatedConfig, rates: updatedRates });
+    resetForm();
+    alert('Trip settings and exchange rates saved!');
+    switchTab('expenses');
+  }
+
+  // --- BUILT-IN APPS SCRIPT COPIER ---
+  function copyAppsScript() {
+    const scriptCode = `function doGet(e) { return handleRequest(e); }
+function doPost(e) { return handleRequest(e); }
+
+function handleRequest(e) {
+  const lock = LockService.getScriptLock();
+  lock.tryLock(10000);
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    initSheets(ss);
+    let payload = {};
+    if (e.postData && e.postData.contents) payload = JSON.parse(e.postData.contents);
+    else if (e.parameter && e.parameter.action) payload = e.parameter;
+    else payload = { action: 'getAll' };
+
+    const configSheet = ss.getSheetByName('Config');
+    const savedPin = String(configSheet.getRange('B5').getValue() || '').trim();
+    const providedPin = String(payload.pin || '').trim();
+    if (savedPin && savedPin !== providedPin) {
+      return ContentService.createTextOutput(JSON.stringify({ status: 'auth_required', message: 'Trip PIN required' })).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    const action = payload.action || 'getAll';
+    let result = {};
+    if (action === 'getAll') result = getAllData(ss);
+    else if (action === 'saveConfig') { saveConfig(ss, payload.config, payload.rates); result = getAllData(ss); }
+    else if (action === 'addTransaction') { addOrUpdateTransaction(ss, payload.tx, false); result = getAllData(ss); }
+    else if (action === 'updateTransaction') { addOrUpdateTransaction(ss, payload.tx, true); result = getAllData(ss); }
+    else if (action === 'deleteTransaction') { deleteTransaction(ss, payload.id); result = getAllData(ss); }
+
+    return ContentService.createTextOutput(JSON.stringify({ status: 'ok', data: result })).setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({ status: 'error', message: err.toString() })).setMimeType(ContentService.MimeType.JSON);
+  } finally { lock.releaseLock(); }
+}
+
+function initSheets(ss) {
+  let configSheet = ss.getSheetByName('Config');
+  if (!configSheet) {
+    configSheet = ss.insertSheet('Config');
+    configSheet.getRange('A1:B5').setValues([['TripName', 'New Trip'], ['TripDate', ''], ['HomeCurrency', 'HKD'], ['DefaultCurrency', 'JPY'], ['TripPIN', '']]);
+    configSheet.getRange('A6:B6').setValues([['Participants', 'Categories']]);
+    ['Flight', 'Lodge', 'Food', 'Transportation (local)', 'Entertainment', 'Shopping', 'Others'].forEach((c, i) => configSheet.getRange(7 + i, 2).setValue(c));
+    configSheet.getRange('A7:A8').setValues([['Me'], ['Friend 1']]);
+    const sheet1 = ss.getSheetByName('Sheet1');
+    if (sheet1 && sheet1.getLastRow() === 0) ss.deleteSheet(sheet1);
+  }
+  let ratesSheet = ss.getSheetByName('Rates');
+  if (!ratesSheet) {
+    ratesSheet = ss.insertSheet('Rates');
+    ratesSheet.getRange('A1:D1').setValues([['Currency', 'GoogleRate', 'ManualRate', 'FinalRate']]);
+    ['HKD', 'JPY', 'USD', 'EUR', 'GBP', 'CNY', 'TWD', 'KRW', 'THB', 'SGD'].forEach((curr, idx) => {
+      const r = idx + 2;
+      ratesSheet.getRange(r, 1).setValue(curr);
+      ratesSheet.getRange(r, 2).setFormula('=IF(A' + r + '=Config!$B$3, 1, IFERROR(GOOGLEFINANCE("CURRENCY:"&A' + r + '&Config!$B$3), 1))');
+      ratesSheet.getRange(r, 4).setFormula('=IF(ISBLANK(C' + r + '), B' + r + ', C' + r + ')');
+    });
+  }
+  let txSheet = ss.getSheetByName('Transactions');
+  if (!txSheet) {
+    txSheet = ss.insertSheet('Transactions');
+    txSheet.getRange('A1:J1').setValues([['ID', 'Date', 'Item', 'Category', 'Amount', 'Currency', 'HomeAmount', 'PayersJSON', 'SplitsJSON', 'Notes']]);
+    txSheet.setFrozenRows(1);
+  }
+}
+
+function getAllData(ss) {
+  const configSheet = ss.getSheetByName('Config');
+  const ratesSheet = ss.getSheetByName('Rates');
+  const txSheet = ss.getSheetByName('Transactions');
+  const meta = configSheet.getRange('B1:B5').getValues();
+  const lastConfigRow = Math.max(configSheet.getLastRow(), 7);
+  const lists = configSheet.getRange(7, 1, lastConfigRow - 6, 2).getValues();
+  const participants = lists.map(r => String(r[0]).trim()).filter(Boolean);
+  const categories = lists.map(r => String(r[1]).trim()).filter(Boolean);
+  const lastRateRow = Math.max(ratesSheet.getLastRow(), 2);
+  const rateRows = ratesSheet.getRange(2, 1, lastRateRow - 1, 4).getValues();
+  const rates = rateRows.filter(r => r[0]).map(r => ({ currency: String(r[0]).trim(), googleRate: Number(r[1]) || 1, manualRate: r[2] === '' ? '' : Number(r[2]), finalRate: Number(r[3]) || 1 }));
+  const lastTxRow = txSheet.getLastRow();
+  let transactions = [];
+  if (lastTxRow > 1) {
+    const txRows = txSheet.getRange(2, 1, lastTxRow - 1, 10).getValues();
+    transactions = txRows.filter(r => r[0]).map(r => ({
+      id: String(r[0]), date: r[1] instanceof Date ? Utilities.formatDate(r[1], ss.getSpreadsheetTimeZone(), 'yyyy-MM-dd') : String(r[1]),
+      item: String(r[2]), category: String(r[3]), amount: Number(r[4]) || 0, currency: String(r[5]), homeAmount: Number(r[6]) || 0,
+      payers: JSON.parse(r[7] || '{}'), splits: JSON.parse(r[8] || '{}'), notes: String(r[9] || '')
+    }));
+  }
+  return { config: { tripName: String(meta[0][0]), tripDate: String(meta[1][0]), homeCurrency: String(meta[2][0]), defaultCurrency: String(meta[3][0]), tripPin: String(meta[4][0] || ''), participants, categories }, rates, transactions };
+}
+
+function saveConfig(ss, config, rates) {
+  const configSheet = ss.getSheetByName('Config');
+  configSheet.getRange('B1:B5').setValues([[config.tripName], [config.tripDate], [config.homeCurrency], [config.defaultCurrency], [config.tripPin || '']]);
+  const maxRows = Math.max(config.participants.length, config.categories.length, configSheet.getLastRow() - 6, 1);
+  configSheet.getRange(7, 1, maxRows, 2).clearContent();
+  config.participants.forEach((p, i) => configSheet.getRange(7 + i, 1).setValue(p));
+  config.categories.forEach((c, i) => configSheet.getRange(7 + i, 2).setValue(c));
+  if (rates && rates.length > 0) {
+    const ratesSheet = ss.getSheetByName('Rates');
+    ratesSheet.getRange(2, 1, Math.max(ratesSheet.getLastRow() - 1, 1), 4).clearContent();
+    rates.forEach((rateObj, idx) => {
+      const r = idx + 2;
+      ratesSheet.getRange(r, 1).setValue(rateObj.currency);
+      ratesSheet.getRange(r, 2).setFormula('=IF(A' + r + '=Config!$B$3, 1, IFERROR(GOOGLEFINANCE("CURRENCY:"&A' + r + '&Config!$B$3), 1))');
+      if (rateObj.manualRate !== '' && rateObj.manualRate !== null) ratesSheet.getRange(r, 3).setValue(Number(rateObj.manualRate));
+      ratesSheet.getRange(r, 4).setFormula('=IF(ISBLANK(C' + r + '), B' + r + ', C' + r + ')');
+    });
+    SpreadsheetApp.flush();
+  }
+}
+
+function addOrUpdateTransaction(ss, tx, isUpdate) {
+  const txSheet = ss.getSheetByName('Transactions');
+  const ratesSheet = ss.getSheetByName('Rates');
+  const rateRows = ratesSheet.getRange(2, 1, Math.max(ratesSheet.getLastRow() - 1, 1), 4).getValues();
+  let rate = 1;
+  for (let i = 0; i < rateRows.length; i++) {
+    if (String(rateRows[i][0]).trim() === tx.currency) { rate = Number(rateRows[i][3]) || 1; break; }
+  }
+  const homeAmount = Number((tx.amount * rate).toFixed(2));
+  const rowData = [tx.id, tx.date, tx.item, tx.category, Number(tx.amount), tx.currency, homeAmount, JSON.stringify(tx.payers), JSON.stringify(tx.splits), tx.notes || ''];
+  if (isUpdate) {
+    const lastRow = txSheet.getLastRow();
+    if (lastRow > 1) {
+      const ids = txSheet.getRange(2, 1, lastRow - 1, 1).getValues();
+      for (let i = 0; i < ids.length; i++) {
+        if (String(ids[i][0]) === String(tx.id)) { txSheet.getRange(i + 2, 1, 1, 10).setValues([rowData]); return; }
+      }
+    }
+  }
+  txSheet.appendRow(rowData);
+}
+
+function deleteTransaction(ss, id) {
+  const txSheet = ss.getSheetByName('Transactions');
+  const lastRow = txSheet.getLastRow();
+  if (lastRow > 1) {
+    const ids = txSheet.getRange(2, 1, lastRow - 1, 1).getValues();
+    for (let i = 0; i < ids.length; i++) {
+      if (String(ids[i][0]) === String(id)) { txSheet.deleteRow(i + 2); return; }
+    }
+  }
+}`;
+    navigator.clipboard.writeText(scriptCode).then(() => {
+      const btn = document.getElementById('copyScriptBtn');
+      btn.textContent = '✅ Copied!';
+      setTimeout(() => btn.textContent = '📋 Copy Script Code', 2500);
+    });
+  }
+</script>
+</body>
+</html>
