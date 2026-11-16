@@ -798,7 +798,10 @@
         return;
       }
 
-      if (json.status !== 'ok') throw new Error(json.message);
+      if (json.status !== 'ok') throw new Error(json.message || 'Unknown error');
+      if (!json.data || !json.data.config) {
+        throw new Error('Invalid response from server. Please update your Apps Script (Copy Script in Setup Guide) and try again.');
+      }
       appData = json.data;
 
       if (appData.config.tripPin) {
