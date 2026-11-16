@@ -1318,9 +1318,52 @@
     }
   }
 
+  let lastCatMap = {};
+  let lastCatTxMap = {};
+
   function toggleCategoryExpand(cat) {
     expandedCategories[cat] = !expandedCategories[cat];
-    renderSummary();
+    renderCategoryTableOnly(); // only refresh the list, leave the chart alone
+  }
+
+  function renderCategoryTableOnly() {
+    const catContainer = document.getElementById('categoryTableContainer');
+    if (!catContainer) return;
+
+    catContainer.innerHTML = Object.entries(lastCatMap).map(([cat, val]) => {
+      const isExpanded = Boolean(expandedCategories[cat]);
+      const txsInCat = lastCatTxMap[cat] || [];
+
+      return `
+        <div>
+          <div onclick="toggleCategoryExpand('${cat}')" class="px-5 py-3 flex justify-between items-center cursor-pointer hover:bg-slate-50 transition">
+            <div class="flex items-center gap-2">
+              <svg class="w-3.5 h-3.5 text-slate-400 transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+              </svg>
+              <span class="text-slate-700 font-medium text-sm">${cat}</span>
+            </div>
+            <div class="font-semibold text-slate-800 text-sm">${formatMoney(val)}</div>
+          </div>
+          ${isExpanded ? `
+            <div class="bg-slate-50/80 px-5 py-2 space-y-1.5 border-t border-b border-slate-100">
+              ${txsInCat.length === 0 ? '<div class="text-[11px] text-slate-400 py-1">No items found</div>' : 
+                txsInCat.map(tx => `
+                  <div class="flex justify-between items-center text-xs py-1">
+                    <div>
+                      <span class="font-medium text-slate-700">${tx.item}</span>
+                      <span class="text-[10px] text-slate-400 ml-1.5">${tx.date}</span>
+                    </div>
+                    <div class="font-semibold text-slate-800">
+                      ${tx.displayCurr} ${formatMoney(tx.displayAmount)}
+                    </div>
+                  </div>
+                `).join('')}
+            </div>
+          ` : ''}
+        </div>
+      `;
+    }).join('');
   }
 
   function renderSummary() {
@@ -1428,50 +1471,20 @@
         </div>
       `).join('');
 
-    // Expandable Category Table
-    const catContainer = document.getElementById('categoryTableContainer');
+    // Expandable Category Table (cached so expand/collapse doesn't rebuild the chart)
+    lastCatMap = catMap;
+    lastCatTxMap = catTxMap;
+    renderCategoryTableOnly();
+
+    // Chart
     const labels = [], values = [];
-    
-    catContainer.innerHTML = Object.entries(catMap).map(([cat, val]) => {
+    Object.entries(catMap).forEach(([cat, val]) => {
       if (val > 0) {
         labels.push(cat);
         values.push(Number(val.toFixed(2)));
       }
-      const isExpanded = Boolean(expandedCategories[cat]);
-      const txsInCat = catTxMap[cat] || [];
+    });
 
-      return `
-        <div>
-          <div onclick="toggleCategoryExpand('${cat}')" class="px-5 py-3 flex justify-between items-center cursor-pointer hover:bg-slate-50 transition">
-            <div class="flex items-center gap-2">
-              <svg class="w-3.5 h-3.5 text-slate-400 transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
-              </svg>
-              <span class="text-slate-700 font-medium text-sm">${cat}</span>
-            </div>
-            <div class="font-semibold text-slate-800 text-sm">${formatMoney(val)}</div>
-          </div>
-          ${isExpanded ? `
-            <div class="bg-slate-50/80 px-5 py-2 space-y-1.5 border-t border-b border-slate-100">
-              ${txsInCat.length === 0 ? '<div class="text-[11px] text-slate-400 py-1">No items found</div>' : 
-                txsInCat.map(tx => `
-                  <div class="flex justify-between items-center text-xs py-1">
-                    <div>
-                      <span class="font-medium text-slate-700">${tx.item}</span>
-                      <span class="text-[10px] text-slate-400 ml-1.5">${tx.date}</span>
-                    </div>
-                    <div class="font-semibold text-slate-800">
-                      ${tx.displayCurr} ${formatMoney(tx.displayAmount)}
-                    </div>
-                  </div>
-                `).join('')}
-            </div>
-          ` : ''}
-        </div>
-      `;
-    }).join('');
-
-    // Chart
     if (chartInstance) chartInstance.destroy();
     const ctx = document.getElementById('categoryChart').getContext('2d');
     chartInstance = new Chart(ctx, {
@@ -1485,7 +1498,10 @@
           borderColor: '#ffffff'
         }]
       },
-      options: { plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 11 } } } } }
+      options: {
+        animation: { duration: 400 },
+        plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 11 } } } }
+      }
     });
   }
 
