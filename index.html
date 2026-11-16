@@ -473,9 +473,49 @@
           </div>
         </div>
 
+        <!-- Rename Participant -->
+        <div class="p-3.5 rounded-xl border border-slate-200/70" style="background-color: var(--bg-page);">
+          <div class="text-xs font-semibold text-slate-600 mb-2">Rename Participant</div>
+          <p class="text-[11px] text-slate-400 mb-2.5">Safely rename a person and update all past expenses at the same time.</p>
+          <div class="flex flex-wrap items-end gap-2">
+            <div class="flex-1 min-w-[100px]">
+              <label class="block text-[10px] text-slate-400 mb-1">Old name</label>
+              <select id="renameOldName" class="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm bg-white"></select>
+            </div>
+            <div class="text-slate-300 pb-2">→</div>
+            <div class="flex-1 min-w-[100px]">
+              <label class="block text-[10px] text-slate-400 mb-1">New name</label>
+              <input type="text" id="renameNewName" placeholder="e.g. CY" class="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" />
+            </div>
+            <button type="button" onclick="renameParticipant()" class="theme-btn text-xs font-medium px-4 py-2 rounded-xl shrink-0">
+              Rename
+            </button>
+          </div>
+          <div id="renameValidation" class="text-xs text-rose-500 font-medium mt-1.5 hidden"></div>
+        </div>
+
         <div>
           <label class="block text-xs font-medium text-slate-500 mb-1">Categories (Comma separated)</label>
           <input type="text" id="cfgCategories" class="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" />
+        </div>
+
+        <div>
+          <label class="block text-xs font-medium text-slate-500 mb-1">Decimal Places for Reports</label>
+          <div class="flex gap-2 mt-1">
+            <label class="flex-1">
+              <input type="radio" name="cfgDecimalPlaces" value="0" class="peer sr-only" checked />
+              <div class="text-center py-2 rounded-xl border border-slate-200 text-sm cursor-pointer peer-checked:bg-[var(--primary)] peer-checked:text-white peer-checked:border-[var(--primary)] hover:bg-slate-50 transition">0 <span class="text-[10px] opacity-70">(1,234)</span></div>
+            </label>
+            <label class="flex-1">
+              <input type="radio" name="cfgDecimalPlaces" value="1" class="peer sr-only" />
+              <div class="text-center py-2 rounded-xl border border-slate-200 text-sm cursor-pointer peer-checked:bg-[var(--primary)] peer-checked:text-white peer-checked:border-[var(--primary)] hover:bg-slate-50 transition">1 <span class="text-[10px] opacity-70">(1,234.5)</span></div>
+            </label>
+            <label class="flex-1">
+              <input type="radio" name="cfgDecimalPlaces" value="2" class="peer sr-only" />
+              <div class="text-center py-2 rounded-xl border border-slate-200 text-sm cursor-pointer peer-checked:bg-[var(--primary)] peer-checked:text-white peer-checked:border-[var(--primary)] hover:bg-slate-50 transition">2 <span class="text-[10px] opacity-70">(1,234.56)</span></div>
+            </label>
+          </div>
+          <p class="text-[10px] text-slate-400 mt-1.5">Applies to balances, settlements and category totals in Summary.</p>
         </div>
 
         <div>
@@ -836,7 +876,7 @@
     document.querySelectorAll('.homeCurrLabel').forEach(el => el.textContent = config.homeCurrency);
 
     const totalHome = transactions.reduce((sum, tx) => sum + (Number(tx.homeAmount) || 0), 0);
-    document.getElementById('displayTotalSpend').textContent = `${config.homeCurrency} ${totalHome.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+    document.getElementById('displayTotalSpend').textContent = `${config.homeCurrency} ${formatMoney(totalHome)}`;
 
     const catSel = document.getElementById('txCategory');
     catSel.innerHTML = config.categories.map(c => `<option value="${c}">${c}</option>`).join('');
@@ -1340,7 +1380,7 @@
     });
 
     // Update Chart Total Display
-    document.getElementById('chartTotalValue').textContent = `${homeCurr} ${totalFilteredHome.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+    document.getElementById('chartTotalValue').textContent = `${homeCurr} ${formatMoney(totalFilteredHome)}`;
 
     // Balance Table
     const tbody = document.getElementById('balanceTableBody');
@@ -1354,9 +1394,9 @@
       return `
         <tr>
           <td class="px-4 py-2.5 font-medium text-slate-700">${p}</td>
-          <td class="px-4 py-2.5 text-right text-slate-500">${paid.toFixed(2)}</td>
-          <td class="px-4 py-2.5 text-right text-slate-500">${split.toFixed(2)}</td>
-          <td class="px-4 py-2.5 text-right font-semibold ${netColor}">${net >= 0 ? '+' : ''}${net.toFixed(2)}</td>
+          <td class="px-4 py-2.5 text-right text-slate-500">${formatMoney(paid)}</td>
+          <td class="px-4 py-2.5 text-right text-slate-500">${formatMoney(split)}</td>
+          <td class="px-4 py-2.5 text-right font-semibold ${netColor}">${formatMoney(net, true)}</td>
         </tr>
       `;
     }).join('');
@@ -1381,7 +1421,7 @@
       : transfers.map(t => `
         <div class="flex items-center justify-between px-4 py-2.5 rounded-xl border border-slate-200/70 text-sm" style="background-color: var(--bg-page);">
           <div><span class="font-semibold text-rose-500">${t.from}</span> <span class="text-slate-400 mx-1">→</span> <span class="font-semibold text-emerald-600">${t.to}</span></div>
-          <div class="font-bold text-slate-700">${config.homeCurrency} ${t.amt.toFixed(2)}</div>
+          <div class="font-bold text-slate-700">${config.homeCurrency} ${formatMoney(t.amt)}</div>
         </div>
       `).join('');
 
@@ -1404,7 +1444,7 @@
               <span class="text-xs text-slate-400 font-bold">${isExpanded ? '▼' : '▶'}</span>
               <span class="text-slate-700 font-medium text-sm">${cat}</span>
             </div>
-            <div class="font-semibold text-slate-800 text-sm">${val.toFixed(2)}</div>
+            <div class="font-semibold text-slate-800 text-sm">${formatMoney(val)}</div>
           </div>
           ${isExpanded ? `
             <div class="bg-slate-50/80 px-5 py-2 space-y-1.5 border-t border-b border-slate-100">
@@ -1416,7 +1456,7 @@
                       <span class="text-[10px] text-slate-400 ml-1.5">${tx.date}</span>
                     </div>
                     <div class="font-semibold text-slate-800">
-                      ${tx.displayCurr} ${tx.displayAmount.toFixed(2)}
+                      ${tx.displayCurr} ${formatMoney(tx.displayAmount)}
                     </div>
                   </div>
                 `).join('')}
@@ -1511,6 +1551,19 @@
     document.getElementById('cfgParticipants').value = config.participants.join(', ');
     document.getElementById('cfgCategories').value = config.categories.join(', ');
 
+    // Decimal places
+    const dp = (config.decimalPlaces === 0 || config.decimalPlaces === 1 || config.decimalPlaces === 2)
+      ? config.decimalPlaces : 0;
+    document.querySelectorAll('input[name="cfgDecimalPlaces"]').forEach(r => {
+      r.checked = Number(r.value) === dp;
+    });
+
+    // Rename dropdown
+    const renameSel = document.getElementById('renameOldName');
+    renameSel.innerHTML = config.participants.map(p => `<option value="${p}">${p}</option>`).join('');
+    document.getElementById('renameNewName').value = '';
+    document.getElementById('renameValidation').classList.add('hidden');
+
     const defSel = document.getElementById('cfgDefaultCurrency');
     const currList = rates.map(r => r.currency).filter(Boolean);
     if (config.defaultCurrency && !currList.includes(config.defaultCurrency)) {
@@ -1594,6 +1647,9 @@
 
   async function saveSetup() {
     syncRatesFromDOM();
+    const dpRadio = document.querySelector('input[name="cfgDecimalPlaces"]:checked');
+    const decimalPlaces = dpRadio ? Number(dpRadio.value) : 0;
+
     const updatedConfig = {
       tripName: document.getElementById('cfgTripName').value.trim() || 'My Trip',
       tripDate: document.getElementById('cfgTripDate').value.trim(),
@@ -1601,7 +1657,8 @@
       defaultCurrency: document.getElementById('cfgDefaultCurrency').value.trim().toUpperCase() || 'JPY',
       tripPin: document.getElementById('cfgTripPin').value.trim(),
       participants: document.getElementById('cfgParticipants').value.split(',').map(s => s.trim()).filter(Boolean),
-      categories: document.getElementById('cfgCategories').value.split(',').map(s => s.trim()).filter(Boolean)
+      categories: document.getElementById('cfgCategories').value.split(',').map(s => s.trim()).filter(Boolean),
+      decimalPlaces
     };
 
     const updatedRates = appData.rates.filter(r => r.currency).map(r => ({
@@ -1613,6 +1670,72 @@
     resetForm();
     alert('Settings saved!');
     switchTab('expenses');
+  }
+
+  // --- RENAME PARTICIPANT ---
+  async function renameParticipant() {
+    const oldName = document.getElementById('renameOldName').value;
+    const newName = document.getElementById('renameNewName').value.trim();
+    const errEl = document.getElementById('renameValidation');
+
+    errEl.classList.add('hidden');
+
+    if (!oldName) {
+      errEl.textContent = 'Please select a person to rename.';
+      errEl.classList.remove('hidden');
+      return;
+    }
+    if (!newName) {
+      errEl.textContent = 'Please enter a new name.';
+      errEl.classList.remove('hidden');
+      return;
+    }
+    if (newName === oldName) {
+      errEl.textContent = 'New name must be different from the old name.';
+      errEl.classList.remove('hidden');
+      return;
+    }
+    if (appData.config.participants.includes(newName)) {
+      errEl.textContent = `"${newName}" already exists. Choose a different name.`;
+      errEl.classList.remove('hidden');
+      return;
+    }
+
+    const txCount = appData.transactions.filter(tx =>
+      (tx.payers && tx.payers[oldName] !== undefined) ||
+      (tx.splits && tx.splits[oldName] !== undefined)
+    ).length;
+
+    const confirmed = confirm(
+      `Rename "${oldName}" to "${newName}"?\n\n` +
+      `This will update the name in:\n` +
+      `• Participant list\n` +
+      `• All existing expenses (${txCount} expense${txCount === 1 ? '' : 's'} will be changed)\n\n` +
+      `This cannot be easily undone.`
+    );
+    if (!confirmed) return;
+
+    await apiCall({ action: 'renameParticipant', oldName, newName });
+    alert(`Renamed "${oldName}" → "${newName}"`);
+    // Form will be refreshed by renderAll after the apiCall
+  }
+
+  // Format money according to the trip's decimalPlaces setting
+  function formatMoney(amount, showSign = false) {
+    const dp = (appData && (appData.config.decimalPlaces === 0 || appData.config.decimalPlaces === 1 || appData.config.decimalPlaces === 2))
+      ? appData.config.decimalPlaces
+      : 0;
+    const abs = Math.abs(amount);
+    const formatted = abs.toLocaleString(undefined, {
+      minimumFractionDigits: dp,
+      maximumFractionDigits: dp
+    });
+    if (showSign) {
+      if (amount > 0.0001) return '+' + formatted;
+      if (amount < -0.0001) return '-' + formatted;
+      return formatted;
+    }
+    return amount < -0.0001 ? '-' + formatted : formatted;
   }
 
   // --- SCRIPT COPIER ---
@@ -1645,6 +1768,7 @@ function handleRequest(e) {
     else if (action === 'addTransaction') { addOrUpdateTransaction(ss, payload.tx, false); result = getAllData(ss); }
     else if (action === 'updateTransaction') { addOrUpdateTransaction(ss, payload.tx, true); result = getAllData(ss); }
     else if (action === 'deleteTransaction') { deleteTransaction(ss, payload.id); result = getAllData(ss); }
+    else if (action === 'renameParticipant') { renameParticipant(ss, payload.oldName, payload.newName); result = getAllData(ss); }
 
     return ContentService.createTextOutput(JSON.stringify({ status: 'ok', data: result })).setMimeType(ContentService.MimeType.JSON);
   } catch (err) {
@@ -1660,6 +1784,8 @@ function initSheets(ss) {
     configSheet.getRange('A6:B6').setValues([['Participants', 'Categories']]);
     ['Flight', 'Lodge', 'Food', 'Transportation (local)', 'Entertainment', 'Shopping', 'Others'].forEach((c, i) => configSheet.getRange(7 + i, 2).setValue(c));
     configSheet.getRange('A7:A8').setValues([['Me'], ['Friend 1']]);
+    configSheet.getRange('A10').setValue('DecimalPlaces');
+    configSheet.getRange('B10').setValue(0);
     const sheet1 = ss.getSheetByName('Sheet1');
     if (sheet1 && sheet1.getLastRow() === 0) ss.deleteSheet(sheet1);
   }
@@ -1691,6 +1817,8 @@ function getAllData(ss) {
   const lists = configSheet.getRange(7, 1, lastConfigRow - 6, 2).getValues();
   const participants = lists.map(r => String(r[0]).trim()).filter(Boolean);
   const categories = lists.map(r => String(r[1]).trim()).filter(Boolean);
+  let decimalPlaces = Number(configSheet.getRange('B10').getValue());
+  if (isNaN(decimalPlaces) || decimalPlaces < 0 || decimalPlaces > 2) decimalPlaces = 0;
   const lastRateRow = Math.max(ratesSheet.getLastRow(), 2);
   const rateRows = ratesSheet.getRange(2, 1, lastRateRow - 1, 4).getValues();
   const rates = rateRows.filter(r => r[0]).map(r => ({ currency: String(r[0]).trim(), googleRate: Number(r[1]) || 1, manualRate: r[2] === '' ? '' : Number(r[2]), finalRate: Number(r[3]) || 1 }));
@@ -1704,12 +1832,14 @@ function getAllData(ss) {
       payers: JSON.parse(r[7] || '{}'), splits: JSON.parse(r[8] || '{}'), notes: String(r[9] || '')
     }));
   }
-  return { config: { tripName: String(meta[0][0]), tripDate: String(meta[1][0]), homeCurrency: String(meta[2][0]), defaultCurrency: String(meta[3][0]), tripPin: String(meta[4][0] || ''), participants, categories }, rates, transactions };
+  return { config: { tripName: String(meta[0][0]), tripDate: String(meta[1][0]), homeCurrency: String(meta[2][0]), defaultCurrency: String(meta[3][0]), tripPin: String(meta[4][0] || ''), participants, categories, decimalPlaces }, rates, transactions };
 }
 
 function saveConfig(ss, config, rates) {
   const configSheet = ss.getSheetByName('Config');
   configSheet.getRange('B1:B5').setValues([[config.tripName], [config.tripDate], [config.homeCurrency], [config.defaultCurrency], [config.tripPin || '']]);
+  configSheet.getRange('A10').setValue('DecimalPlaces');
+  configSheet.getRange('B10').setValue(config.decimalPlaces === 0 || config.decimalPlaces === 1 || config.decimalPlaces === 2 ? config.decimalPlaces : 0);
   const maxRows = Math.max(config.participants.length, config.categories.length, configSheet.getLastRow() - 6, 1);
   configSheet.getRange(7, 1, maxRows, 2).clearContent();
   config.participants.forEach((p, i) => configSheet.getRange(7 + i, 1).setValue(p));
@@ -1725,6 +1855,58 @@ function saveConfig(ss, config, rates) {
       ratesSheet.getRange(r, 4).setFormula('=IF(ISBLANK(C' + r + '), B' + r + ', C' + r + ')');
     });
     SpreadsheetApp.flush();
+  }
+}
+
+function renameParticipant(ss, oldName, newName) {
+  oldName = String(oldName || '').trim();
+  newName = String(newName || '').trim();
+  if (!oldName || !newName || oldName === newName) throw new Error('Invalid rename names');
+
+  const configSheet = ss.getSheetByName('Config');
+  const lastConfigRow = Math.max(configSheet.getLastRow(), 7);
+  const lists = configSheet.getRange(7, 1, lastConfigRow - 6, 2).getValues();
+  const participants = lists.map(r => String(r[0]).trim()).filter(Boolean);
+
+  if (participants.indexOf(oldName) === -1) throw new Error('Old name not found in participants');
+  if (participants.indexOf(newName) !== -1) throw new Error('New name already exists');
+
+  // Update participant list
+  for (let i = 0; i < lists.length; i++) {
+    if (String(lists[i][0]).trim() === oldName) {
+      configSheet.getRange(7 + i, 1).setValue(newName);
+      break;
+    }
+  }
+
+  // Update all transactions
+  const txSheet = ss.getSheetByName('Transactions');
+  const lastTxRow = txSheet.getLastRow();
+  if (lastTxRow > 1) {
+    const txRows = txSheet.getRange(2, 1, lastTxRow - 1, 10).getValues();
+    for (let i = 0; i < txRows.length; i++) {
+      if (!txRows[i][0]) continue;
+      let changed = false;
+      let payers = {};
+      let splits = {};
+      try { payers = JSON.parse(txRows[i][7] || '{}'); } catch (e) { payers = {}; }
+      try { splits = JSON.parse(txRows[i][8] || '{}'); } catch (e) { splits = {}; }
+
+      if (payers[oldName] !== undefined) {
+        payers[newName] = payers[oldName];
+        delete payers[oldName];
+        changed = true;
+      }
+      if (splits[oldName] !== undefined) {
+        splits[newName] = splits[oldName];
+        delete splits[oldName];
+        changed = true;
+      }
+      if (changed) {
+        txSheet.getRange(i + 2, 8).setValue(JSON.stringify(payers));
+        txSheet.getRange(i + 2, 9).setValue(JSON.stringify(splits));
+      }
+    }
   }
 }
 
