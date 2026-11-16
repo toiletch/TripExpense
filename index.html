@@ -111,6 +111,22 @@
       border-color: transparent;
     }
 
+    /* Drag and Drop styling */
+    .draggable-row {
+      cursor: grab;
+      transition: background-color 0.15s ease;
+    }
+    .draggable-row:active {
+      cursor: grabbing;
+    }
+    .draggable-row.dragging {
+      opacity: 0.4;
+      background: #e2e8f0;
+    }
+    .drag-over {
+      border-top: 2px dashed var(--primary);
+    }
+
     @media print {
       .no-print { display: none !important; }
       body { background: white !important; }
@@ -464,14 +480,17 @@
 
         <div>
           <div class="flex justify-between items-center mb-2">
-            <label class="text-xs font-semibold text-slate-600">Exchange Rates & Order (1 Foreign = X Home)</label>
+            <div>
+              <label class="text-xs font-semibold text-slate-600 block">Exchange Rates & Order (1 Foreign = X Home)</label>
+              <span class="text-[10px] text-slate-400">Drag ⠿ handle to reorder rows</span>
+            </div>
             <button type="button" onclick="addCurrencyRow()" class="text-xs hover:underline theme-text">+ Add Currency</button>
           </div>
           <div class="overflow-x-auto border border-slate-200/80 rounded-xl">
             <table class="w-full text-xs text-left">
               <thead class="bg-slate-50/70 text-slate-400 border-b border-slate-100">
                 <tr>
-                  <th class="px-3 py-2 w-16">Order</th>
+                  <th class="px-3 py-2 w-10 text-center">Drag</th>
                   <th class="px-3 py-2">Currency</th>
                   <th class="px-3 py-2">Google Live</th>
                   <th class="px-3 py-2">Manual Rate</th>
@@ -1453,7 +1472,7 @@
     window.print();
   }
 
-  // --- SETUP & FX ---
+  // --- SETUP & FX (WITH DRAG & DROP) ---
   function renderSetupForm() {
     const { config, rates } = appData;
     document.getElementById('cfgTripName').value = config.tripName;
@@ -1472,50 +1491,80 @@
 
     const tbody = document.getElementById('ratesTableBody');
     tbody.innerHTML = rates.map((r, idx) => `
-      <tr>
-        <td class="px-3 py-2">
-          <div class="flex items-center gap-1">
-            <button type="button" onclick="moveCurrency(${idx}, -1)" class="w-5 h-5 bg-slate-100 hover:bg-slate-200 rounded text-[10px] font-bold text-slate-600">▲</button>
-            <button type="button" onclick="moveCurrency(${idx}, 1)" class="w-5 h-5 bg-slate-100 hover:bg-slate-200 rounded text-[10px] font-bold text-slate-600">▼</button>
-          </div>
-        </td>
+      <tr draggable="true" data-index="${idx}" class="draggable-row bg-white border-b border-slate-100">
+        <td class="px-3 py-2 text-center text-slate-400 font-bold select-none cursor-grab">⠿</td>
         <td class="px-3 py-2"><input type="text" value="${r.currency}" data-rate-curr="${idx}" class="w-16 uppercase font-semibold border border-slate-200 rounded-lg px-1.5 py-1" /></td>
         <td class="px-3 py-2 text-slate-400">${r.googleRate.toFixed(4)}</td>
         <td class="px-3 py-2"><input type="number" step="0.0001" value="${r.manualRate}" data-rate-manual="${idx}" placeholder="Auto" class="w-24 border border-slate-200 rounded-lg px-1.5 py-1" /></td>
         <td class="px-3 py-2 font-semibold text-slate-700">${r.finalRate.toFixed(4)}</td>
       </tr>
     `).join('');
+
+    initDragAndDrop();
   }
 
-  function moveCurrency(idx, direction) {
-    const target = idx + direction;
-    if (target < 0 || target >= appData.rates.length) return;
-    const temp = appData.rates[idx];
-    appData.rates[idx] = appData.rates[target];
-    appData.rates[target] = temp;
-    
+  function syncRatesFromDOM() {
     const currInputs = document.querySelectorAll('[data-rate-curr]');
     const manualInputs = document.querySelectorAll('[data-rate-manual]');
     currInputs.forEach((inp, i) => {
       appData.rates[i].currency = inp.value.trim().toUpperCase();
       appData.rates[i].manualRate = manualInputs[i].value.trim();
     });
-    renderSetupForm();
+  }
+
+  function initDragAndDrop() {
+    const tbody = document.getElementById('ratesTableBody');
+    let draggedRow = null;
+
+    tbody.querySelectorAll('.draggable-row').forEach(row => {
+      row.addEventListener('dragstart', (e) => {
+        syncRatesFromDOM(); // Capture current input values before moving
+        draggedRow = row;
+        row.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+      });
+
+      row.addEventListener('dragend', () => {
+        draggedRow.classList.remove('dragging');
+        tbody.querySelectorAll('.draggable-row').forEach(r => r.classList.remove('drag-over'));
+      });
+
+      row.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        const targetRow = e.target.closest('.draggable-row');
+        if (targetRow && targetRow !== draggedRow) {
+          tbody.querySelectorAll('.draggable-row').forEach(r => r.classList.remove('drag-over'));
+          targetRow.classList.add('drag-over');
+        }
+      });
+
+      row.addEventListener('drop', (e) => {
+        e.preventDefault();
+        const targetRow = e.target.closest('.draggable-row');
+        if (targetRow && draggedRow && targetRow !== draggedRow) {
+          const allRows = [...tbody.querySelectorAll('.draggable-row')];
+          const draggedIdx = allRows.indexOf(draggedRow);
+          const targetIdx = allRows.indexOf(targetRow);
+
+          // Reorder appData.rates array
+          const movedItem = appData.rates.splice(draggedIdx, 1)[0];
+          appData.rates.splice(targetIdx, 0, movedItem);
+
+          renderSetupForm(); // Re-render table in new order with inputs preserved
+        }
+      });
+    });
   }
 
   function addCurrencyRow() {
-    const currInputs = document.querySelectorAll('[data-rate-curr]');
-    const manualInputs = document.querySelectorAll('[data-rate-manual]');
-    currInputs.forEach((inp, i) => {
-      appData.rates[i].currency = inp.value.trim().toUpperCase();
-      appData.rates[i].manualRate = manualInputs[i].value.trim();
-    });
-
+    syncRatesFromDOM();
     appData.rates.push({ currency: '', googleRate: 1, manualRate: '', finalRate: 1 });
     renderSetupForm();
   }
 
   async function saveSetup() {
+    syncRatesFromDOM();
     const updatedConfig = {
       tripName: document.getElementById('cfgTripName').value.trim() || 'My Trip',
       tripDate: document.getElementById('cfgTripDate').value.trim(),
@@ -1526,18 +1575,10 @@
       categories: document.getElementById('cfgCategories').value.split(',').map(s => s.trim()).filter(Boolean)
     };
 
-    const currInputs = document.querySelectorAll('[data-rate-curr]');
-    const manualInputs = document.querySelectorAll('[data-rate-manual]');
-    const updatedRates = [];
-    currInputs.forEach((inp, i) => {
-      const c = inp.value.trim().toUpperCase();
-      if (c) {
-        updatedRates.push({
-          currency: c,
-          manualRate: manualInputs[i].value.trim()
-        });
-      }
-    });
+    const updatedRates = appData.rates.filter(r => r.currency).map(r => ({
+      currency: r.currency,
+      manualRate: r.manualRate
+    }));
 
     await apiCall({ action: 'saveConfig', config: updatedConfig, rates: updatedRates });
     resetForm();
