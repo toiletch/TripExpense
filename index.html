@@ -396,7 +396,13 @@
       <!-- Category Chart & Expandable Totals Table -->
       <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
         <div class="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-xs flex flex-col items-center justify-center">
-          <h3 class="text-sm font-bold text-slate-700 mb-3 self-start">Spending by Category</h3>
+          <div class="w-full flex justify-between items-center mb-3">
+            <h3 class="text-sm font-bold text-slate-700">Spending by Category</h3>
+            <div class="text-right">
+              <span id="chartTotalLabel" class="text-[10px] uppercase tracking-wider text-slate-400 block font-medium">Total</span>
+              <span id="chartTotalValue" class="text-sm font-bold theme-text">0.00</span>
+            </div>
+          </div>
           <div class="w-full max-w-[240px]">
             <canvas id="categoryChart"></canvas>
           </div>
@@ -1244,32 +1250,37 @@
       catTxMap[c] = [];
     });
 
+    let totalFilteredHome = 0;
+
     transactions.forEach(tx => {
       const fx = tx.amount > 0 ? (tx.homeAmount / tx.amount) : 1;
       
-      // Check if this transaction matches the selected person filter
       let includeTx = true;
-      let personFactor = 1; // if viewing for a specific person, how much do they bear?
-
       if (selectedPerson !== 'ALL') {
         const userShare = tx.splits[selectedPerson] || 0;
         const userPaid = tx.payers[selectedPerson] || 0;
         if (userShare <= 0 && userPaid <= 0) {
           includeTx = false;
-        } else {
-          // For category totals & items when filtered by person, show their specific share amount
-          personFactor = userShare / tx.amount; // ratio of their share
         }
       }
 
       if (includeTx) {
-        const catVal = selectedPerson === 'ALL' ? tx.homeAmount : (tx.homeAmount * (tx.splits[selectedPerson] ? (tx.splits[selectedPerson] / tx.amount) : 0));
+        const catVal = selectedPerson === 'ALL' ? tx.homeAmount : ((tx.splits[selectedPerson] || 0) * fx);
+        totalFilteredHome += catVal;
+        
         catMap[tx.category] = (catMap[tx.category] || 0) + catVal;
-        catTxMap[tx.category].push({
-          ...tx,
-          displayAmount: currencyMode === 'HOME' ? (selectedPerson === 'ALL' ? tx.homeAmount : ((tx.splits[selectedPerson] || 0) * fx)) : (selectedPerson === 'ALL' ? tx.amount : (tx.splits[selectedPerson] || 0)),
-          displayCurr: currencyMode === 'HOME' ? homeCurr : tx.currency
-        });
+        
+        const itemDisplayAmt = currencyMode === 'HOME' 
+          ? (selectedPerson === 'ALL' ? tx.homeAmount : ((tx.splits[selectedPerson] || 0) * fx))
+          : (selectedPerson === 'ALL' ? tx.amount : (tx.splits[selectedPerson] || 0));
+
+        if (itemDisplayAmt > 0) {
+          catTxMap[tx.category].push({
+            ...tx,
+            displayAmount: itemDisplayAmt,
+            displayCurr: currencyMode === 'HOME' ? homeCurr : tx.currency
+          });
+        }
       }
 
       Object.entries(tx.payers).forEach(([p, amt]) => {
@@ -1279,6 +1290,9 @@
         splitMap[p] = (splitMap[p] || 0) + (amt * fx);
       });
     });
+
+    // Update Chart Total Display
+    document.getElementById('chartTotalValue').textContent = `${homeCurr} ${totalFilteredHome.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
 
     // Balance Table
     const tbody = document.getElementById('balanceTableBody');
@@ -1480,7 +1494,6 @@
     appData.rates[idx] = appData.rates[target];
     appData.rates[target] = temp;
     
-    // Refresh table values safely before redraw
     const currInputs = document.querySelectorAll('[data-rate-curr]');
     const manualInputs = document.querySelectorAll('[data-rate-manual]');
     currInputs.forEach((inp, i) => {
