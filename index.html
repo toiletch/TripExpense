@@ -7,7 +7,6 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
-    /* 柔和莫蘭迪色系主題變數 */
     :root, [data-theme="sage"] {
       --bg-page: #f6f8f7;
       --bg-header: #ffffff;
@@ -133,7 +132,7 @@
         </select>
       </div>
 
-      <!-- Right Actions: Sync + Gear Settings Menu -->
+      <!-- Right Actions -->
       <div class="flex items-center gap-1.5 relative">
         <button type="button" onclick="refreshData()" id="syncBtn" title="Sync with Google Sheet" class="hidden p-2 rounded-xl text-slate-500 hover:bg-slate-100 transition">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -149,9 +148,8 @@
           </svg>
         </button>
 
-        <!-- Dropdown Popover inside Gear Icon -->
+        <!-- Dropdown Popover -->
         <div id="settingsPopover" class="hidden absolute right-0 top-12 w-60 bg-white rounded-2xl shadow-lg border border-slate-200/90 py-2 z-50 text-sm">
-          <!-- Theme Swatches -->
           <div class="px-4 py-2 border-b border-slate-100">
             <div class="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-2">Color Tone</div>
             <div class="flex items-center justify-between gap-1.5">
@@ -163,7 +161,6 @@
             </div>
           </div>
 
-          <!-- Menu Items -->
           <div class="py-1">
             <button type="button" onclick="closeSettingsMenu(); openTripModal();" class="w-full px-4 py-2.5 text-left text-slate-700 hover:bg-slate-50 flex items-center gap-2.5">
               <svg class="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
@@ -184,7 +181,7 @@
       </div>
     </div>
 
-    <!-- Clean 3-Tab Navigation with Monochrome Line Icons -->
+    <!-- Navigation Tabs with Line Icons -->
     <nav id="mainNav" class="max-w-3xl mx-auto px-4 flex border-t border-slate-100 text-xs sm:text-sm hidden">
       <button type="button" onclick="switchTab('expenses')" id="tab-expenses" class="flex-1 py-2.5 flex items-center justify-center gap-1.5 theme-tab theme-tab-active">
         <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
@@ -344,13 +341,28 @@
 
     <!-- TAB 2: SUMMARY -->
     <section id="view-summary" class="hidden space-y-5">
-      <div class="flex flex-wrap justify-between items-center gap-2 no-print">
-        <h2 class="text-base font-bold text-slate-800">Settlement & Breakdown</h2>
+      <!-- Top Filters for Summary -->
+      <div class="bg-white rounded-2xl p-4 border border-slate-200/80 shadow-xs flex flex-wrap items-center justify-between gap-3 no-print">
+        <div class="flex flex-wrap items-center gap-3">
+          <div>
+            <label class="block text-[10px] uppercase font-semibold text-slate-400 mb-1">View Filter</label>
+            <select id="summaryPersonFilter" onchange="renderSummary()" class="text-xs border border-slate-200 rounded-xl px-3 py-1.5 bg-slate-50 font-medium text-slate-700 focus:outline-none">
+              <option value="ALL">All Participants (Combined)</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-[10px] uppercase font-semibold text-slate-400 mb-1">Item Currency</label>
+            <select id="summaryCurrencyMode" onchange="renderSummary()" class="text-xs border border-slate-200 rounded-xl px-3 py-1.5 bg-slate-50 font-medium text-slate-700 focus:outline-none">
+              <option value="HOME">Settlement Currency (<span class="homeCurrLabel">HKD</span>)</option>
+              <option value="ORIGINAL">Original Currency</option>
+            </select>
+          </div>
+        </div>
         <div class="flex gap-2">
-          <button type="button" onclick="exportCSV()" class="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-medium px-3 py-1.5 rounded-xl">
+          <button type="button" onclick="exportCSV()" class="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-medium px-3.5 py-2 rounded-xl">
             Export CSV
           </button>
-          <button type="button" onclick="printFullReport()" class="theme-btn text-xs font-medium px-3 py-1.5 rounded-xl">
+          <button type="button" onclick="printFullReport()" class="theme-btn text-xs font-medium px-3.5 py-2 rounded-xl">
             Save PDF / Print
           </button>
         </div>
@@ -381,21 +393,20 @@
         </table>
       </div>
 
-      <!-- Category Chart & Totals -->
+      <!-- Category Chart & Expandable Totals Table -->
       <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
         <div class="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-xs flex flex-col items-center justify-center">
-          <h3 class="text-sm font-bold text-slate-700 mb-3 self-start">By Category</h3>
+          <h3 class="text-sm font-bold text-slate-700 mb-3 self-start">Spending by Category</h3>
           <div class="w-full max-w-[240px]">
             <canvas id="categoryChart"></canvas>
           </div>
         </div>
         <div class="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
-          <div class="px-5 py-3.5 border-b border-slate-100">
-            <h3 class="text-sm font-bold text-slate-700">Category Totals (<span class="homeCurrLabel">HKD</span>)</h3>
+          <div class="px-5 py-3.5 border-b border-slate-100 flex justify-between items-center">
+            <h3 class="text-sm font-bold text-slate-700">Category Breakdown</h3>
+            <span class="text-[11px] text-slate-400">Click row to expand items</span>
           </div>
-          <table class="w-full text-sm">
-            <tbody id="categoryTableBody" class="divide-y divide-slate-100"></tbody>
-          </table>
+          <div id="categoryTableContainer" class="divide-y divide-slate-100"></div>
         </div>
       </div>
 
@@ -447,13 +458,14 @@
 
         <div>
           <div class="flex justify-between items-center mb-2">
-            <label class="text-xs font-semibold text-slate-600">Exchange Rates (1 Foreign = X Home)</label>
+            <label class="text-xs font-semibold text-slate-600">Exchange Rates & Order (1 Foreign = X Home)</label>
             <button type="button" onclick="addCurrencyRow()" class="text-xs hover:underline theme-text">+ Add Currency</button>
           </div>
           <div class="overflow-x-auto border border-slate-200/80 rounded-xl">
             <table class="w-full text-xs text-left">
               <thead class="bg-slate-50/70 text-slate-400 border-b border-slate-100">
                 <tr>
+                  <th class="px-3 py-2 w-16">Order</th>
                   <th class="px-3 py-2">Currency</th>
                   <th class="px-3 py-2">Google Live</th>
                   <th class="px-3 py-2">Manual Rate</th>
@@ -471,7 +483,7 @@
       </div>
     </section>
 
-    <!-- SETUP GUIDE VIEW (Accessed via Top-Right Gear Menu) -->
+    <!-- SETUP GUIDE VIEW -->
     <section id="view-guide" class="hidden space-y-5">
       <div class="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-xs space-y-4">
         <div class="flex justify-between items-center">
@@ -546,6 +558,7 @@
   let activeSharers = new Set();
   let pinnedSplits = {};
   let chartInstance = null;
+  let expandedCategories = {};
 
   // --- SETTINGS POPOVER & THEME ---
   function toggleSettingsMenu(e) {
@@ -750,7 +763,10 @@
       document.getElementById('emptyState').classList.remove('hidden');
     }
 
-    if (tab === 'summary' && appData) renderSummary();
+    if (tab === 'summary' && appData) {
+      renderSummaryDropdowns();
+      renderSummary();
+    }
   }
 
   function renderAll() {
@@ -797,6 +813,7 @@
     renderTransactions();
     renderSetupForm();
     if (!document.getElementById('view-summary').classList.contains('hidden')) {
+      renderSummaryDropdowns();
       renderSummary();
     }
   }
@@ -1193,19 +1210,67 @@
   }
 
   // --- SUMMARY & EXPORT ---
+  function renderSummaryDropdowns() {
+    const sel = document.getElementById('summaryPersonFilter');
+    const currentVal = sel.value;
+    const participants = appData.config.participants;
+    sel.innerHTML = '<option value="ALL">All Participants (Combined)</option>' + 
+      participants.map(p => `<option value="${p}">${p}</option>`).join('');
+    if (participants.includes(currentVal) || currentVal === 'ALL') {
+      sel.value = currentVal;
+    }
+  }
+
+  function toggleCategoryExpand(cat) {
+    expandedCategories[cat] = !expandedCategories[cat];
+    renderSummary();
+  }
+
   function renderSummary() {
     const { config, transactions } = appData;
     const participants = config.participants;
+    const selectedPerson = document.getElementById('summaryPersonFilter').value;
+    const currencyMode = document.getElementById('summaryCurrencyMode').value; // HOME or ORIGINAL
+    const homeCurr = config.homeCurrency;
+
     const paidMap = {};
     const splitMap = {};
     const catMap = {};
+    const catTxMap = {};
 
     participants.forEach(p => { paidMap[p] = 0; splitMap[p] = 0; });
-    config.categories.forEach(c => { catMap[c] = 0; });
+    config.categories.forEach(c => { 
+      catMap[c] = 0; 
+      catTxMap[c] = [];
+    });
 
     transactions.forEach(tx => {
       const fx = tx.amount > 0 ? (tx.homeAmount / tx.amount) : 1;
-      catMap[tx.category] = (catMap[tx.category] || 0) + tx.homeAmount;
+      
+      // Check if this transaction matches the selected person filter
+      let includeTx = true;
+      let personFactor = 1; // if viewing for a specific person, how much do they bear?
+
+      if (selectedPerson !== 'ALL') {
+        const userShare = tx.splits[selectedPerson] || 0;
+        const userPaid = tx.payers[selectedPerson] || 0;
+        if (userShare <= 0 && userPaid <= 0) {
+          includeTx = false;
+        } else {
+          // For category totals & items when filtered by person, show their specific share amount
+          personFactor = userShare / tx.amount; // ratio of their share
+        }
+      }
+
+      if (includeTx) {
+        const catVal = selectedPerson === 'ALL' ? tx.homeAmount : (tx.homeAmount * (tx.splits[selectedPerson] ? (tx.splits[selectedPerson] / tx.amount) : 0));
+        catMap[tx.category] = (catMap[tx.category] || 0) + catVal;
+        catTxMap[tx.category].push({
+          ...tx,
+          displayAmount: currencyMode === 'HOME' ? (selectedPerson === 'ALL' ? tx.homeAmount : ((tx.splits[selectedPerson] || 0) * fx)) : (selectedPerson === 'ALL' ? tx.amount : (tx.splits[selectedPerson] || 0)),
+          displayCurr: currencyMode === 'HOME' ? homeCurr : tx.currency
+        });
+      }
 
       Object.entries(tx.payers).forEach(([p, amt]) => {
         paidMap[p] = (paidMap[p] || 0) + (amt * fx);
@@ -1215,6 +1280,7 @@
       });
     });
 
+    // Balance Table
     const tbody = document.getElementById('balanceTableBody');
     const balances = [];
     tbody.innerHTML = participants.map(p => {
@@ -1233,6 +1299,7 @@
       `;
     }).join('');
 
+    // Settlements
     const debtors = balances.filter(b => b.net < -0.01).map(b => ({ name: b.name, amt: -b.net })).sort((a, b) => b.amt - a.amt);
     const creditors = balances.filter(b => b.net > 0.01).map(b => ({ name: b.name, amt: b.net })).sort((a, b) => b.amt - a.amt);
     const transfers = [];
@@ -1256,19 +1323,48 @@
         </div>
       `).join('');
 
-    const catBody = document.getElementById('categoryTableBody');
+    // Expandable Category Table
+    const catContainer = document.getElementById('categoryTableContainer');
     const labels = [], values = [];
-    catBody.innerHTML = Object.entries(catMap).filter(([, v]) => v > 0).map(([cat, val]) => {
-      labels.push(cat);
-      values.push(Number(val.toFixed(2)));
+    
+    catContainer.innerHTML = Object.entries(catMap).map(([cat, val]) => {
+      if (val > 0) {
+        labels.push(cat);
+        values.push(Number(val.toFixed(2)));
+      }
+      const isExpanded = Boolean(expandedCategories[cat]);
+      const txsInCat = catTxMap[cat] || [];
+
       return `
-        <tr>
-          <td class="px-4 py-2.5 text-slate-600">${cat}</td>
-          <td class="px-4 py-2.5 text-right font-semibold text-slate-800">${val.toFixed(2)}</td>
-        </tr>
+        <div>
+          <div onclick="toggleCategoryExpand('${cat}')" class="px-5 py-3 flex justify-between items-center cursor-pointer hover:bg-slate-50 transition">
+            <div class="flex items-center gap-2">
+              <span class="text-xs text-slate-400 font-bold">${isExpanded ? '▼' : '▶'}</span>
+              <span class="text-slate-700 font-medium text-sm">${cat}</span>
+            </div>
+            <div class="font-semibold text-slate-800 text-sm">${val.toFixed(2)}</div>
+          </div>
+          ${isExpanded ? `
+            <div class="bg-slate-50/80 px-5 py-2 space-y-1.5 border-t border-b border-slate-100">
+              ${txsInCat.length === 0 ? '<div class="text-[11px] text-slate-400 py-1">No items found</div>' : 
+                txsInCat.map(tx => `
+                  <div class="flex justify-between items-center text-xs py-1">
+                    <div>
+                      <span class="font-medium text-slate-700">${tx.item}</span>
+                      <span class="text-[10px] text-slate-400 ml-1.5">${tx.date}</span>
+                    </div>
+                    <div class="font-semibold text-slate-800">
+                      ${tx.displayCurr} ${tx.displayAmount.toFixed(2)}
+                    </div>
+                  </div>
+                `).join('')}
+            </div>
+          ` : ''}
+        </div>
       `;
     }).join('');
 
+    // Chart
     if (chartInstance) chartInstance.destroy();
     const ctx = document.getElementById('categoryChart').getContext('2d');
     chartInstance = new Chart(ctx, {
@@ -1363,6 +1459,12 @@
     const tbody = document.getElementById('ratesTableBody');
     tbody.innerHTML = rates.map((r, idx) => `
       <tr>
+        <td class="px-3 py-2">
+          <div class="flex items-center gap-1">
+            <button type="button" onclick="moveCurrency(${idx}, -1)" class="w-5 h-5 bg-slate-100 hover:bg-slate-200 rounded text-[10px] font-bold text-slate-600">▲</button>
+            <button type="button" onclick="moveCurrency(${idx}, 1)" class="w-5 h-5 bg-slate-100 hover:bg-slate-200 rounded text-[10px] font-bold text-slate-600">▼</button>
+          </div>
+        </td>
         <td class="px-3 py-2"><input type="text" value="${r.currency}" data-rate-curr="${idx}" class="w-16 uppercase font-semibold border border-slate-200 rounded-lg px-1.5 py-1" /></td>
         <td class="px-3 py-2 text-slate-400">${r.googleRate.toFixed(4)}</td>
         <td class="px-3 py-2"><input type="number" step="0.0001" value="${r.manualRate}" data-rate-manual="${idx}" placeholder="Auto" class="w-24 border border-slate-200 rounded-lg px-1.5 py-1" /></td>
@@ -1371,7 +1473,31 @@
     `).join('');
   }
 
+  function moveCurrency(idx, direction) {
+    const target = idx + direction;
+    if (target < 0 || target >= appData.rates.length) return;
+    const temp = appData.rates[idx];
+    appData.rates[idx] = appData.rates[target];
+    appData.rates[target] = temp;
+    
+    // Refresh table values safely before redraw
+    const currInputs = document.querySelectorAll('[data-rate-curr]');
+    const manualInputs = document.querySelectorAll('[data-rate-manual]');
+    currInputs.forEach((inp, i) => {
+      appData.rates[i].currency = inp.value.trim().toUpperCase();
+      appData.rates[i].manualRate = manualInputs[i].value.trim();
+    });
+    renderSetupForm();
+  }
+
   function addCurrencyRow() {
+    const currInputs = document.querySelectorAll('[data-rate-curr]');
+    const manualInputs = document.querySelectorAll('[data-rate-manual]');
+    currInputs.forEach((inp, i) => {
+      appData.rates[i].currency = inp.value.trim().toUpperCase();
+      appData.rates[i].manualRate = manualInputs[i].value.trim();
+    });
+
     appData.rates.push({ currency: '', googleRate: 1, manualRate: '', finalRate: 1 });
     renderSetupForm();
   }
