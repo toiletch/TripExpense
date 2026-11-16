@@ -551,10 +551,7 @@
               <label class="text-xs font-semibold text-slate-600 block">Exchange Rates & Order (1 Foreign = X Home)</label>
               <span class="text-[10px] text-slate-400">Drag ⠿ handle to reorder rows</span>
             </div>
-            <div class="flex gap-2">
-              <button type="button" onclick="recalculateRates()" class="text-xs hover:underline text-amber-600 font-medium">🔄 重新計算所有舊單匯率</button>
-              <button type="button" onclick="addCurrencyRow()" class="text-xs hover:underline theme-text">+ Add Currency</button>
-            </div>
+            <button type="button" onclick="addCurrencyRow()" class="text-xs hover:underline theme-text">+ Add Currency</button>
           </div>
           <div class="overflow-x-auto border border-slate-200/80 rounded-xl">
             <table class="w-full text-xs text-left">
@@ -701,6 +698,7 @@
   function formatDateISO(d) {
     if (!d) return '';
     if (typeof d === 'string') {
+      // already yyyy-mm-dd or needs normalizing
       const m = d.match(/^(\d{4})-(\d{2})-(\d{2})/);
       if (m) return `${m[1]}-${m[2]}-${m[3]}`;
       const parsed = new Date(d);
@@ -726,6 +724,7 @@
 
   function openDatePicker() {
     const el = document.getElementById('txDate');
+    // Make it temporarily interactive so the native picker can open
     el.classList.remove('pointer-events-none', 'opacity-0', 'w-px', 'h-px', 'overflow-hidden');
     el.style.position = 'absolute';
     el.style.left = '0';
@@ -742,6 +741,7 @@
     } catch (e) {
       el.focus();
     }
+    // Hide again after picker interaction
     const hide = () => {
       el.classList.add('pointer-events-none', 'opacity-0', 'w-px', 'h-px', 'overflow-hidden');
       el.style.cssText = '';
@@ -901,12 +901,15 @@
         const localName = (tripEntry.name || '').trim();
         const isUsefulLocalName = localName && localName !== 'New Trip' && localName !== 'Shared Trip';
 
+        // First-time connect: push the nickname the user typed into the sheet
         if (isDefaultName && isUsefulLocalName) {
           appData.config.tripName = localName;
+          // Persist to sheet, then continue rendering with the updated name
           await apiCall({ action: 'saveConfig', config: appData.config, rates: appData.rates });
           return;
         }
 
+        // Keep localStorage label in sync with the official sheet name
         if (sheetName && tripEntry.name !== sheetName) {
           tripEntry.name = sheetName;
           localStorage.setItem('tripsplit_trips', JSON.stringify(savedTrips));
@@ -1405,7 +1408,7 @@
 
   function toggleCategoryExpand(cat) {
     expandedCategories[cat] = !expandedCategories[cat];
-    renderCategoryTableOnly();
+    renderCategoryTableOnly(); // only refresh the list, leave the chart alone
   }
 
   function renderCategoryTableOnly() {
@@ -1452,7 +1455,7 @@
     const { config, transactions } = appData;
     const participants = config.participants;
     const selectedPerson = document.getElementById('summaryPersonFilter').value;
-    const currencyMode = document.getElementById('summaryCurrencyMode').value;
+    const currencyMode = document.getElementById('summaryCurrencyMode').value; // HOME or ORIGINAL
     const homeCurr = config.homeCurrency;
 
     const paidMap = {};
@@ -1507,8 +1510,10 @@
       });
     });
 
+    // Update Chart Total Display
     document.getElementById('chartTotalValue').textContent = `${homeCurr} ${formatMoney(totalFilteredHome)}`;
 
+    // Balance Table
     const tbody = document.getElementById('balanceTableBody');
     const balances = [];
     tbody.innerHTML = participants.map(p => {
@@ -1527,6 +1532,7 @@
       `;
     }).join('');
 
+    // Settlements
     const debtors = balances.filter(b => b.net < -0.01).map(b => ({ name: b.name, amt: -b.net })).sort((a, b) => b.amt - a.amt);
     const creditors = balances.filter(b => b.net > 0.01).map(b => ({ name: b.name, amt: b.net })).sort((a, b) => b.amt - a.amt);
     const transfers = [];
@@ -1550,10 +1556,12 @@
         </div>
       `).join('');
 
+    // Expandable Category Table (cached so expand/collapse doesn't rebuild the chart)
     lastCatMap = catMap;
     lastCatTxMap = catTxMap;
     renderCategoryTableOnly();
 
+    // Chart
     const labels = [], values = [];
     Object.entries(catMap).forEach(([cat, val]) => {
       if (val > 0) {
@@ -1649,12 +1657,14 @@
     document.getElementById('cfgParticipants').value = config.participants.join(', ');
     document.getElementById('cfgCategories').value = config.categories.join(', ');
 
+    // Decimal places
     const dp = (config.decimalPlaces === 0 || config.decimalPlaces === 1 || config.decimalPlaces === 2)
       ? config.decimalPlaces : 0;
     document.querySelectorAll('input[name="cfgDecimalPlaces"]').forEach(r => {
       r.checked = Number(r.value) === dp;
     });
 
+    // Rename dropdown
     const renameSel = document.getElementById('renameOldName');
     renameSel.innerHTML = config.participants.map(p => `<option value="${p}">${p}</option>`).join('');
     document.getElementById('renameNewName').value = '';
@@ -1696,7 +1706,7 @@
 
     tbody.querySelectorAll('.draggable-row').forEach(row => {
       row.addEventListener('dragstart', (e) => {
-        syncRatesFromDOM();
+        syncRatesFromDOM(); // Capture current input values before moving
         draggedRow = row;
         row.classList.add('dragging');
         e.dataTransfer.effectAllowed = 'move';
@@ -1725,10 +1735,11 @@
           const draggedIdx = allRows.indexOf(draggedRow);
           const targetIdx = allRows.indexOf(targetRow);
 
+          // Reorder appData.rates array
           const movedItem = appData.rates.splice(draggedIdx, 1)[0];
           appData.rates.splice(targetIdx, 0, movedItem);
 
-          renderSetupForm();
+          renderSetupForm(); // Re-render table in new order with inputs preserved
         }
       });
     });
@@ -1764,21 +1775,6 @@
     await apiCall({ action: 'saveConfig', config: updatedConfig, rates: updatedRates });
     resetForm();
     alert('Settings saved!');
-    switchTab('expenses');
-  }
-
-  // --- RECALCULATE ALL RATES ---
-  async function recalculateRates() {
-    syncRatesFromDOM();
-    const updatedRates = appData.rates.filter(r => r.currency).map(r => ({
-      currency: r.currency,
-      manualRate: r.manualRate
-    }));
-
-    if (!confirm('確定要根據最新的匯率重新計算所有舊單的折算金額嗎？')) return;
-
-    await apiCall({ action: 'recalculateAllRates', rates: updatedRates });
-    alert('所有舊單匯率已成功重新計算！');
     switchTab('expenses');
   }
 
@@ -1827,8 +1823,10 @@
 
     await apiCall({ action: 'renameParticipant', oldName, newName });
     alert(`Renamed "${oldName}" → "${newName}"`);
+    // Form will be refreshed by renderAll after the apiCall
   }
 
+  // Format money according to the trip's decimalPlaces setting
   function formatMoney(amount, showSign = false) {
     const dp = (appData && (appData.config.decimalPlaces === 0 || appData.config.decimalPlaces === 1 || appData.config.decimalPlaces === 2))
       ? appData.config.decimalPlaces
@@ -1873,7 +1871,6 @@ function handleRequest(e) {
     let result = {};
     if (action === 'getAll') result = getAllData(ss);
     else if (action === 'saveConfig') { saveConfig(ss, payload.config, payload.rates); result = getAllData(ss); }
-    else if (action === 'recalculateAllRates') { recalculateAllRates(ss, payload.rates); result = getAllData(ss); }
     else if (action === 'addTransaction') { addOrUpdateTransaction(ss, payload.tx, false); result = getAllData(ss); }
     else if (action === 'updateTransaction') { addOrUpdateTransaction(ss, payload.tx, true); result = getAllData(ss); }
     else if (action === 'deleteTransaction') { deleteTransaction(ss, payload.id); result = getAllData(ss); }
@@ -1954,54 +1951,16 @@ function saveConfig(ss, config, rates) {
   config.participants.forEach((p, i) => configSheet.getRange(7 + i, 1).setValue(p));
   config.categories.forEach((c, i) => configSheet.getRange(7 + i, 2).setValue(c));
   if (rates && rates.length > 0) {
-    updateRatesTable(ss, rates);
-  }
-}
-
-function updateRatesTable(ss, rates) {
-  const ratesSheet = ss.getSheetByName('Rates');
-  ratesSheet.getRange(2, 1, Math.max(ratesSheet.getLastRow() - 1, 1), 4).clearContent();
-  rates.forEach((rateObj, idx) => {
-    const r = idx + 2;
-    ratesSheet.getRange(r, 1).setValue(rateObj.currency);
-    ratesSheet.getRange(r, 2).setFormula('=IF(A' + r + '=Config!$B$3, 1, IFERROR(GOOGLEFINANCE("CURRENCY:"&A' + r + '&Config!$B$3), 1))');
-    if (rateObj.manualRate !== '' && rateObj.manualRate !== null) ratesSheet.getRange(r, 3).setValue(Number(rateObj.manualRate));
-    ratesSheet.getRange(r, 4).setFormula('=IF(ISBLANK(C' + r + '), B' + r + ', C' + r + ')');
-  });
-  SpreadsheetApp.flush();
-}
-
-function recalculateAllRates(ss, rates) {
-  if (rates && rates.length > 0) {
-    updateRatesTable(ss, rates);
-  }
-  
-  // Get latest rates map from Rates sheet column 1 & 4
-  const ratesSheet = ss.getSheetByName('Rates');
-  const lastRateRow = ratesSheet.getLastRow();
-  const rateMap = {};
-  if (lastRateRow >= 2) {
-    const rateData = ratesSheet.getRange(2, 1, lastRateRow - 1, 4).getValues();
-    rateData.forEach(row => {
-      const curr = String(row[0]).trim();
-      const finalR = Number(row[3]) || 1;
-      if (curr) rateMap[curr] = finalR;
+    const ratesSheet = ss.getSheetByName('Rates');
+    ratesSheet.getRange(2, 1, Math.max(ratesSheet.getLastRow() - 1, 1), 4).clearContent();
+    rates.forEach((rateObj, idx) => {
+      const r = idx + 2;
+      ratesSheet.getRange(r, 1).setValue(rateObj.currency);
+      ratesSheet.getRange(r, 2).setFormula('=IF(A' + r + '=Config!$B$3, 1, IFERROR(GOOGLEFINANCE("CURRENCY:"&A' + r + '&Config!$B$3), 1))');
+      if (rateObj.manualRate !== '' && rateObj.manualRate !== null) ratesSheet.getRange(r, 3).setValue(Number(rateObj.manualRate));
+      ratesSheet.getRange(r, 4).setFormula('=IF(ISBLANK(C' + r + '), B' + r + ', C' + r + ')');
     });
-  }
-
-  // Recalculate homeAmount for all transactions
-  const txSheet = ss.getSheetByName('Transactions');
-  const lastTxRow = txSheet.getLastRow();
-  if (lastTxRow > 1) {
-    const txValues = txSheet.getRange(2, 1, lastTxRow - 1, 10).getValues();
-    for (let i = 0; i < txValues.length; i++) {
-      if (!txValues[i][0]) continue;
-      const amount = Number(txValues[i][4]) || 0;
-      const currency = String(txValues[i][5]).trim();
-      const rate = rateMap[currency] || 1;
-      const newHomeAmount = Number((amount * rate).toFixed(2));
-      txSheet.getRange(i + 2, 7).setValue(newHomeAmount);
-    }
+    SpreadsheetApp.flush();
   }
 }
 
@@ -2018,6 +1977,7 @@ function renameParticipant(ss, oldName, newName) {
   if (participants.indexOf(oldName) === -1) throw new Error('Old name not found in participants');
   if (participants.indexOf(newName) !== -1) throw new Error('New name already exists');
 
+  // Update participant list
   for (let i = 0; i < lists.length; i++) {
     if (String(lists[i][0]).trim() === oldName) {
       configSheet.getRange(7 + i, 1).setValue(newName);
@@ -2025,6 +1985,7 @@ function renameParticipant(ss, oldName, newName) {
     }
   }
 
+  // Update all transactions
   const txSheet = ss.getSheetByName('Transactions');
   const lastTxRow = txSheet.getLastRow();
   if (lastTxRow > 1) {
