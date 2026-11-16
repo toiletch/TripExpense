@@ -127,6 +127,27 @@
       border-top: 2px dashed var(--primary);
     }
 
+    /* iOS Safari: keep native date inputs inside their frame */
+    input[type="date"] {
+      min-width: 0;
+      max-width: 100%;
+      -webkit-appearance: none;
+      appearance: none;
+      background-color: #fff;
+      line-height: 1.25;
+    }
+    input[type="date"]::-webkit-date-and-time-value {
+      text-align: left;
+    }
+    /* On narrow screens, don't let the date control force horizontal overflow */
+    @media (max-width: 420px) {
+      input[type="date"] {
+        font-size: 16px; /* prevents iOS zoom-on-focus and helps layout */
+        padding-left: 0.625rem;
+        padding-right: 0.625rem;
+      }
+    }
+
     @media print {
       .no-print { display: none !important; }
       body { background: white !important; }
@@ -276,18 +297,24 @@
         <form id="expenseForm" onsubmit="submitExpense(event)" class="space-y-4">
           <input type="hidden" id="txId" />
 
-          <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div class="col-span-2">
+          <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
+            <div class="sm:col-span-2">
               <label class="block text-xs font-medium text-slate-500 mb-1">Description *</label>
               <input type="text" id="txItem" required placeholder="e.g. Dinner, Train ticket" class="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:border-slate-400" />
             </div>
-            <div>
+            <div class="min-w-0">
               <label class="block text-xs font-medium text-slate-500 mb-1">Category *</label>
               <select id="txCategory" class="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm bg-white focus:outline-none focus:border-slate-400"></select>
             </div>
-            <div>
+            <div class="min-w-0 relative">
               <label class="block text-xs font-medium text-slate-500 mb-1">Date *</label>
-              <input type="date" id="txDate" required class="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:border-slate-400" />
+              <!-- Always shows YYYY-MM-DD (avoids iOS Chinese locale format) -->
+              <input type="text" id="txDateDisplay" readonly placeholder="YYYY-MM-DD" inputmode="none"
+                class="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm bg-white focus:outline-none focus:border-slate-400 cursor-pointer"
+                onclick="openDatePicker()" />
+              <input type="date" id="txDate" required
+                class="absolute opacity-0 pointer-events-none w-px h-px overflow-hidden"
+                onchange="syncDateDisplay()" />
             </div>
           </div>
 
@@ -667,11 +694,69 @@
     localStorage.setItem('tripsplit_theme', theme);
   }
 
+  // --- DATE DISPLAY (always YYYY-MM-DD) ---
+  function formatDateISO(d) {
+    if (!d) return '';
+    if (typeof d === 'string') {
+      // already yyyy-mm-dd or needs normalizing
+      const m = d.match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+      const parsed = new Date(d);
+      if (!isNaN(parsed)) d = parsed;
+      else return d;
+    }
+    const y = d.getFullYear();
+    const mo = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${mo}-${day}`;
+  }
+
+  function syncDateDisplay() {
+    const raw = document.getElementById('txDate').value;
+    document.getElementById('txDateDisplay').value = raw ? formatDateISO(raw) : '';
+  }
+
+  function setExpenseDate(value) {
+    const iso = value ? formatDateISO(value) : formatDateISO(new Date());
+    document.getElementById('txDate').value = iso;
+    document.getElementById('txDateDisplay').value = iso;
+  }
+
+  function openDatePicker() {
+    const el = document.getElementById('txDate');
+    // Make it temporarily interactive so the native picker can open
+    el.classList.remove('pointer-events-none', 'opacity-0', 'w-px', 'h-px', 'overflow-hidden');
+    el.style.position = 'absolute';
+    el.style.left = '0';
+    el.style.right = '0';
+    el.style.top = '0';
+    el.style.bottom = '0';
+    el.style.width = '100%';
+    el.style.height = '100%';
+    el.style.opacity = '0.01';
+    el.style.zIndex = '5';
+    try {
+      if (typeof el.showPicker === 'function') el.showPicker();
+      else el.focus();
+    } catch (e) {
+      el.focus();
+    }
+    // Hide again after picker interaction
+    const hide = () => {
+      el.classList.add('pointer-events-none', 'opacity-0', 'w-px', 'h-px', 'overflow-hidden');
+      el.style.cssText = '';
+      el.removeEventListener('change', hide);
+      el.removeEventListener('blur', hide);
+    };
+    el.addEventListener('change', hide, { once: true });
+    el.addEventListener('blur', hide, { once: true });
+  }
+
   // --- INITIALIZATION ---
   window.addEventListener('DOMContentLoaded', () => {
     const savedTheme = localStorage.getItem('tripsplit_theme') || 'sage';
     setTheme(savedTheme);
-    document.getElementById('txDate').valueAsDate = new Date();
+    setExpenseDate(new Date());
 
     const params = new URLSearchParams(window.location.search);
     const sharedApi = params.get('api');
@@ -1206,7 +1291,7 @@
     document.getElementById('txId').value = tx.id;
     document.getElementById('txItem').value = tx.item;
     document.getElementById('txCategory').value = tx.category;
-    document.getElementById('txDate').value = tx.date;
+    setExpenseDate(tx.date);
     document.getElementById('txAmount').value = tx.amount;
     document.getElementById('txCurrency').value = tx.currency;
     document.getElementById('txNotes').value = tx.notes || '';
@@ -1238,7 +1323,7 @@
     document.getElementById('txItem').value = '';
     document.getElementById('txAmount').value = '';
     document.getElementById('txNotes').value = '';
-    document.getElementById('txDate').valueAsDate = new Date();
+    setExpenseDate(new Date());
 
     if (appData) {
       document.getElementById('txCategory').selectedIndex = 0;
