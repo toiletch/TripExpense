@@ -539,8 +539,26 @@
           </div>
 
           <div class="p-4 rounded-xl border border-slate-200/70" style="background-color: var(--bg-page);">
-            <div class="font-bold text-slate-800 mb-1">4. Connect & Share</div>
-            <p>Click the top-right ⚙️ icon → <b>Add / Switch Trip</b> to paste your URL, then use <b>Share Trip Link</b> to invite friends.</p>
+            <div class="font-bold text-slate-800 mb-1">4. Connect the Trip</div>
+            <p>Click the top-right ⚙️ icon → <b>Add / Switch Trip</b>. Paste the Web App URL and give the trip a clear name (this name will become the official Trip Name).</p>
+          </div>
+
+          <div class="p-4 rounded-xl border border-slate-200/70" style="background-color: var(--bg-page);">
+            <div class="font-bold text-slate-800 mb-1">5. Configure Trip Settings</div>
+            <p class="mb-2">Go to the <b>Trip Settings</b> tab and fill in the important details before anyone starts adding expenses:</p>
+            <ul class="list-disc pl-4 space-y-1 text-slate-600">
+              <li><b>Trip Name</b> &amp; Dates</li>
+              <li><b>Home Currency</b> (the currency you want to settle in)</li>
+              <li><b>Default Expense Currency</b></li>
+              <li><b>Participants</b> — real names of everyone on the trip (comma separated)</li>
+              <li>Categories (optional)</li>
+            </ul>
+            <p class="mt-2 text-slate-500">Tip: Set correct names and currencies first. Renaming people later does not automatically update old expenses.</p>
+          </div>
+
+          <div class="p-4 rounded-xl border border-slate-200/70" style="background-color: var(--bg-page);">
+            <div class="font-bold text-slate-800 mb-1">6. Share with Friends</div>
+            <p>Click the top-right ⚙️ icon → <b>Share Trip Link</b> and send the link to your friends. They can open it directly and start adding expenses.</p>
           </div>
         </div>
       </div>
@@ -559,7 +577,7 @@
 
       <div class="border-t border-slate-100 pt-3 space-y-2.5">
         <label class="block text-xs font-semibold text-slate-600">Connect New Trip Sheet</label>
-        <input type="text" id="newTripLabel" placeholder="Trip Name (e.g. Kyoto Dec 2026)" class="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" />
+        <input type="text" id="newTripLabel" placeholder="Trip Name (e.g. Kyoto Dec 2026) — becomes the official name" class="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" />
         <input type="url" id="newTripUrl" placeholder="https://script.google.com/macros/s/.../exec" class="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" />
         <button type="button" onclick="addNewTrip()" class="w-full theme-btn font-medium py-2.5 rounded-xl text-xs">
           Connect & Load
@@ -749,15 +767,26 @@
       }
 
       const tripEntry = savedTrips.find(t => t.url === activeApiUrl);
-      if (tripEntry && appData.config.tripName) {
-        if (appData.config.tripName === 'New Trip' && tripEntry.name && tripEntry.name !== 'New Trip' && tripEntry.name !== 'Shared Trip') {
-          appData.config.tripName = tripEntry.name;
-          apiCall({ action: 'saveConfig', config: appData.config, rates: appData.rates });
+      if (tripEntry) {
+        const sheetName = (appData.config.tripName || '').trim();
+        const isDefaultName = !sheetName || sheetName === 'New Trip';
+        const localName = (tripEntry.name || '').trim();
+        const isUsefulLocalName = localName && localName !== 'New Trip' && localName !== 'Shared Trip';
+
+        // First-time connect: push the nickname the user typed into the sheet
+        if (isDefaultName && isUsefulLocalName) {
+          appData.config.tripName = localName;
+          // Persist to sheet, then continue rendering with the updated name
+          await apiCall({ action: 'saveConfig', config: appData.config, rates: appData.rates });
           return;
         }
-        tripEntry.name = appData.config.tripName;
-        localStorage.setItem('tripsplit_trips', JSON.stringify(savedTrips));
-        renderTripSelector();
+
+        // Keep localStorage label in sync with the official sheet name
+        if (sheetName && tripEntry.name !== sheetName) {
+          tripEntry.name = sheetName;
+          localStorage.setItem('tripsplit_trips', JSON.stringify(savedTrips));
+          renderTripSelector();
+        }
       }
       renderAll();
     } catch (err) {
