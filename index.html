@@ -1444,7 +1444,9 @@
         <div>
           <div onclick="toggleCategoryExpand('${cat}')" class="px-5 py-3 flex justify-between items-center cursor-pointer hover:bg-slate-50 transition">
             <div class="flex items-center gap-2">
-              <span class="text-xs text-slate-400 font-bold">${isExpanded ? '▼' : '▶'}</span>
+              <svg class="w-3.5 h-3.5 text-slate-400 transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+              </svg>
               <span class="text-slate-700 font-medium text-sm">${cat}</span>
             </div>
             <div class="font-semibold text-slate-800 text-sm">${formatMoney(val)}</div>
