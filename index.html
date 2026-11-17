@@ -1365,7 +1365,9 @@
 
     const homeCurr = appData.config.homeCurrency;
     list.innerHTML = txs.map(tx => {
-      const paidBy = Object.entries(tx.payers).map(([k, v]) => Object.keys(tx.payers).length > 1 ? `${k} (${v})` : k).join(', ');
+      const paidBy = Object.entries(tx.payers).map(([k, v]) =>
+        Object.keys(tx.payers).length > 1 ? `${k} (${formatMoney(v)})` : k
+      ).join(', ');
       const splitWith = Object.keys(tx.splits).join(', ');
       return `
         <div class="p-4 hover:bg-slate-50/70 transition flex justify-between items-start gap-3">
@@ -1379,8 +1381,8 @@
             ${tx.notes ? `<div class="text-[11px] text-slate-400 italic">${tx.notes}</div>` : ''}
           </div>
           <div class="text-right shrink-0">
-            <div class="font-bold text-slate-800 text-sm">${tx.currency} ${tx.amount.toLocaleString(undefined, {minimumFractionDigits: 2})}</div>
-            ${tx.currency !== homeCurr ? `<div class="text-[11px] text-slate-400">≈ ${homeCurr} ${tx.homeAmount.toLocaleString(undefined, {minimumFractionDigits: 2})}</div>` : ''}
+            <div class="font-bold text-slate-800 text-sm">${tx.currency} ${formatMoney(tx.amount)}</div>
+            ${tx.currency !== homeCurr ? `<div class="text-[11px] text-slate-400">≈ ${homeCurr} ${formatMoney(tx.homeAmount)}</div>` : ''}
             <div class="mt-1.5 flex justify-end gap-2.5 no-print">
               <button type="button" onclick="editTx('${tx.id}')" class="text-xs hover:underline theme-text">Edit</button>
               <button type="button" onclick="deleteTx('${tx.id}')" class="text-xs text-rose-400 hover:text-rose-600 hover:underline">Delete</button>
@@ -1772,9 +1774,22 @@
       manualRate: r.manualRate
     }));
 
-    await apiCall({ action: 'saveConfig', config: updatedConfig, rates: updatedRates });
+    const txCount = (appData.transactions || []).length;
+    let recalculate = false;
+    if (txCount > 0) {
+      // OK = save + recalculate all home amounts; Cancel = save settings only
+      recalculate = confirm(
+        `Save settings and recalculate all ${txCount} existing expense(s) with the current exchange rates?\n\n` +
+        `OK = Yes, update every expense's home amount\n` +
+        `Cancel = Save settings only (keep old conversions)`
+      );
+    }
+
+    await apiCall({ action: 'saveConfig', config: updatedConfig, rates: updatedRates, recalculate });
     resetForm();
-    alert('Settings saved!');
+    alert(recalculate
+      ? `Settings saved. ${txCount} expense(s) recalculated with the latest rates.`
+      : 'Settings saved.');
     switchTab('expenses');
   }
 
@@ -1870,7 +1885,7 @@ function handleRequest(e) {
     const action = payload.action || 'getAll';
     let result = {};
     if (action === 'getAll') result = getAllData(ss);
-    else if (action === 'saveConfig') { saveConfig(ss, payload.config, payload.rates); result = getAllData(ss); }
+    else if (action === 'saveConfig') { saveConfig(ss, payload.config, payload.rates, payload.recalculate); result = getAllData(ss); }
     else if (action === 'addTransaction') { addOrUpdateTransaction(ss, payload.tx, false); result = getAllData(ss); }
     else if (action === 'updateTransaction') { addOrUpdateTransaction(ss, payload.tx, true); result = getAllData(ss); }
     else if (action === 'deleteTransaction') { deleteTransaction(ss, payload.id); result = getAllData(ss); }
@@ -1941,7 +1956,7 @@ function getAllData(ss) {
   return { config: { tripName: String(meta[0][0]), tripDate: String(meta[1][0]), homeCurrency: String(meta[2][0]), defaultCurrency: String(meta[3][0]), tripPin: String(meta[4][0] || ''), participants, categories, decimalPlaces }, rates, transactions };
 }
 
-function saveConfig(ss, config, rates) {
+function saveConfig(ss, config, rates, recalculate) {
   const configSheet = ss.getSheetByName('Config');
   configSheet.getRange('B1:B5').setValues([[config.tripName], [config.tripDate], [config.homeCurrency], [config.defaultCurrency], [config.tripPin || '']]);
   configSheet.getRange('A10').setValue('DecimalPlaces');
@@ -1962,6 +1977,33 @@ function saveConfig(ss, config, rates) {
     });
     SpreadsheetApp.flush();
   }
+  if (recalculate) {
+    recalculateAllHomeAmounts(ss);
+  }
+}
+
+function recalculateAllHomeAmounts(ss) {
+  const ratesSheet = ss.getSheetByName('Rates');
+  const txSheet = ss.getSheetByName('Transactions');
+  const lastRateRow = Math.max(ratesSheet.getLastRow(), 2);
+  const rateRows = ratesSheet.getRange(2, 1, lastRateRow - 1, 4).getValues();
+  const rateMap = {};
+  rateRows.forEach(function(r) {
+    const curr = String(r[0] || '').trim();
+    if (curr) rateMap[curr] = Number(r[3]) || 1;
+  });
+  const lastTxRow = txSheet.getLastRow();
+  if (lastTxRow <= 1) return;
+  const txRows = txSheet.getRange(2, 1, lastTxRow - 1, 10).getValues();
+  for (var i = 0; i < txRows.length; i++) {
+    if (!txRows[i][0]) continue;
+    var amount = Number(txRows[i][4]) || 0;
+    var currency = String(txRows[i][5] || '').trim();
+    var rate = rateMap[currency] !== undefined ? rateMap[currency] : 1;
+    var homeAmount = Number((amount * rate).toFixed(2));
+    txSheet.getRange(i + 2, 7).setValue(homeAmount);
+  }
+  SpreadsheetApp.flush();
 }
 
 function renameParticipant(ss, oldName, newName) {
