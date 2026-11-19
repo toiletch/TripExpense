@@ -253,6 +253,14 @@
   </div>
 
   <main class="max-w-3xl mx-auto px-4 pt-6">
+    <div id="offlineBanner" class="hidden mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900">
+  <div class="flex items-center justify-between gap-3">
+    <span id="offlineMessage">Offline — changes saved on this device.</span>
+    <button type="button" id="retrySyncBtn" onclick="syncQueue()" class="hidden shrink-0 font-semibold underline">
+      Retry
+    </button>
+  </div>
+</div>
     <!-- Welcome / Empty State -->
     <div id="emptyState" class="bg-white rounded-2xl shadow-xs border border-slate-200/80 p-8 text-center mt-6">
       <div class="w-12 h-12 rounded-2xl theme-soft-bg mx-auto flex items-center justify-center mb-4">
@@ -659,6 +667,191 @@
   let tripPins = JSON.parse(localStorage.getItem('tripsplit_pins') || '{}');
   let activeApiUrl = '';
   let appData = null;
+  let syncInProgress = false;
+let offlineMessage = '';
+
+function offlineStorageKey(url = activeApiUrl) {
+  return `tripsplit_offline_v1:${encodeURIComponent(url)}`;
+}
+
+function readOfflineState(url = activeApiUrl) {
+  try {
+    const saved = JSON.parse(localStorage.getItem(offlineStorageKey(url)) || '{}');
+    return {
+      data: saved.data || null,
+      queue: Array.isArray(saved.queue) ? saved.queue : []
+    };
+  } catch (err) {
+    return { data: null, queue: [] };
+  }
+}
+
+function persistOfflineState(url = activeApiUrl) {
+  if (!url) return;
+  const previous = readOfflineState(url);
+  try {
+    localStorage.setItem(offlineStorageKey(url), JSON.stringify({
+      data: appData || previous.data,
+      queue: previous.queue
+    }));
+  } catch (err) {
+    offlineMessage = 'Could not save offline changes on this device. Check available storage.';
+    renderOfflineStatus();
+  }
+}
+
+function getPendingQueue(url = activeApiUrl) {
+  return readOfflineState(url).queue;
+}
+
+function setPendingQueue(queue, url = activeApiUrl) {
+  const previous = readOfflineState(url);
+  try {
+    localStorage.setItem(offlineStorageKey(url), JSON.stringify({
+      data: appData || previous.data,
+      queue
+    }));
+  } catch (err) {
+    offlineMessage = 'Could not save offline changes on this device. Check available storage.';
+    renderOfflineStatus();
+  }
+  renderOfflineStatus();
+}
+
+function applyQueuedChanges(data, queue) {
+  if (!data) return data;
+
+  const result = JSON.parse(JSON.stringify(data));
+  result.transactions = Array.isArray(result.transactions) ? result.transactions : [];
+
+  queue.forEach(operation => {
+    if (operation.action === 'deleteTransaction') {
+      result.transactions = result.transactions.filter(tx => String(tx.id) !== String(operation.id));
+      return;
+    }
+
+    if (operation.action === 'addTransaction' || operation.action === 'updateTransaction') {
+      const tx = { ...operation.tx };
+      const rate = (result.rates || []).find(item => item.currency === tx.currency);
+      tx.homeAmount = Number((Number(tx.amount) * (Number(rate?.finalRate) || 1)).toFixed(2));
+
+      const index = result.transactions.findIndex(item => String(item.id) === String(tx.id));
+      if (index >= 0) result.transactions[index] = tx;
+      else result.transactions.push(tx);
+    }
+  });
+
+  return result;
+}
+
+function renderOfflineStatus() {
+  const banner = document.getElementById('offlineBanner');
+  const message = document.getElementById('offlineMessage');
+  const retry = document.getElementById('retrySyncBtn');
+  if (!banner || !message || !retry) return;
+
+  const count = activeApiUrl ? getPendingQueue().length : 0;
+  const offline = !navigator.onLine;
+
+  if (offlineMessage) {
+    message.textContent = offlineMessage;
+    retry.classList.toggle('hidden', count === 0);
+    banner.classList.remove('hidden');
+  } else if (offline) {
+    message.textContent = 'Offline — changes saved on this device.';
+    retry.classList.toggle('hidden', count === 0);
+    banner.classList.remove('hidden');
+  } else if (count > 0) {
+    message.textContent = `Pending sync (${count})`;
+    retry.classList.remove('hidden');
+    banner.classList.remove('hidden');
+  } else {
+    banner.classList.add('hidden');
+  }
+}
+
+async function postToTrip(payload, url = activeApiUrl) {
+  const pin = tripPins[url] || '';
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ ...payload, pin })
+  });
+  const json = await response.json();
+
+  if (json.status === 'auth_required') {
+    const enteredPin = prompt('Enter Trip PIN:');
+    if (enteredPin === null) throw new Error('Trip PIN entry cancelled.');
+    tripPins[url] = enteredPin.trim();
+    localStorage.setItem('tripsplit_pins', JSON.stringify(tripPins));
+    return postToTrip(payload, url);
+  }
+
+  if (json.status !== 'ok') throw new Error(json.message || 'Unknown server error');
+  if (!json.data || !json.data.config) {
+    throw new Error('Invalid server response. Update the Apps Script from the Setup Guide and try again.');
+  }
+  return json.data;
+}
+
+async function syncQueue() {
+  if (!activeApiUrl || syncInProgress) return;
+  if (!navigator.onLine) {
+    offlineMessage = '';
+    renderOfflineStatus();
+    return;
+  }
+
+  const url = activeApiUrl;
+  const queue = getPendingQueue(url);
+  if (queue.length === 0) {
+    offlineMessage = '';
+    await apiCall(null);
+    return;
+  }
+
+  syncInProgress = true;
+  offlineMessage = '';
+  renderOfflineStatus();
+
+  try {
+    while (activeApiUrl === url) {
+      const currentQueue = getPendingQueue(url);
+      if (currentQueue.length === 0) break;
+
+      const operation = currentQueue[0];
+      await postToTrip(operation, url);
+
+      // Remove only after the server confirms success. Retrying is safe because
+      // transaction IDs are stable and the Apps Script upserts matching IDs.
+      setPendingQueue(getPendingQueue(url).slice(1), url);
+    }
+
+    if (activeApiUrl !== url) return;
+
+    const serverData = await postToTrip({ action: 'getAll' }, url);
+    appData = applyQueuedChanges(serverData, getPendingQueue(url));
+    persistOfflineState(url);
+    renderAll();
+    offlineMessage = '';
+  } catch (err) {
+    offlineMessage = `Sync failed: ${err.message}. Changes are still saved on this device.`;
+  } finally {
+    syncInProgress = false;
+    renderOfflineStatus();
+  }
+}
+
+window.addEventListener('online', () => {
+  offlineMessage = '';
+  if (getPendingQueue().length) syncQueue();
+  else renderOfflineStatus();
+});
+
+window.addEventListener('offline', () => {
+  offlineMessage = '';
+  renderOfflineStatus();
+});
 
   let selectedPayer = '';
   let isMultiPayer = false;
@@ -859,97 +1052,106 @@
     switchTab('expenses');
   }
 
-  async function apiCall(payload = null) {
-    const loader = document.getElementById('loader');
-    loader.classList.remove('hidden');
-    try {
-      const pin = tripPins[activeApiUrl] || '';
-      const bodyPayload = payload ? { ...payload, pin } : { action: 'getAll', pin };
-      const res = await fetch(activeApiUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(bodyPayload)
-      });
-      const json = await res.json();
+async function apiCall(payload = null) {
+  const loader = document.getElementById('loader');
 
-      if (json.status === 'auth_required') {
-        loader.classList.add('hidden');
-        const enteredPin = prompt('Enter Trip PIN:');
-        if (enteredPin !== null) {
-          tripPins[activeApiUrl] = enteredPin.trim();
-          localStorage.setItem('tripsplit_pins', JSON.stringify(tripPins));
-          return apiCall(payload);
-        }
-        return;
-      }
-
-      if (json.status !== 'ok') throw new Error(json.message || 'Unknown error');
-      if (!json.data || !json.data.config) {
-        throw new Error('Invalid response from server. Please update your Apps Script (Copy Script in Setup Guide) and try again.');
-      }
-      appData = json.data;
-
-      if (appData.config.tripPin) {
-        tripPins[activeApiUrl] = appData.config.tripPin;
-        localStorage.setItem('tripsplit_pins', JSON.stringify(tripPins));
-      }
-
-      const tripEntry = savedTrips.find(t => t.url === activeApiUrl);
-      if (tripEntry) {
-        const sheetName = (appData.config.tripName || '').trim();
-        const isDefaultName = !sheetName || sheetName === 'New Trip';
-        const localName = (tripEntry.name || '').trim();
-        const isUsefulLocalName = localName && localName !== 'New Trip' && localName !== 'Shared Trip';
-
-        // First-time connect: push the nickname the user typed into the sheet
-        if (isDefaultName && isUsefulLocalName) {
-          appData.config.tripName = localName;
-          // Persist to sheet, then continue rendering with the updated name
-          await apiCall({ action: 'saveConfig', config: appData.config, rates: appData.rates });
-          return;
-        }
-
-        // Keep localStorage label in sync with the official sheet name
-        if (sheetName && tripEntry.name !== sheetName) {
-          tripEntry.name = sheetName;
-          localStorage.setItem('tripsplit_trips', JSON.stringify(savedTrips));
-          renderTripSelector();
-        }
-      }
-      renderAll();
-    } catch (err) {
-      alert('Connection error: ' + err.message);
-    } finally {
-      loader.classList.add('hidden');
-    }
-  }
-
-  function refreshData() {
-    return apiCall(null);
-  }
-
-  // --- NAVIGATION ---
-  function switchTab(tab) {
-    ['expenses', 'summary', 'setup', 'guide'].forEach(t => {
-      document.getElementById(`view-${t}`).classList.toggle('hidden', t !== tab);
-      const btn = document.getElementById(`tab-${t}`);
-      if (btn) {
-        btn.classList.toggle('theme-tab-active', t === tab);
-      }
+  // Expense mutations are persisted locally first and applied optimistically.
+  if (payload && ['addTransaction', 'updateTransaction', 'deleteTransaction'].includes(payload.action)) {
+    const queue = getPendingQueue();
+    queue.push({
+      ...payload,
+      id: payload.id,
+      tx: payload.tx ? { ...payload.tx } : undefined
     });
 
-    if (tab === 'guide') {
-      document.getElementById('emptyState').classList.add('hidden');
-      if (appData) document.getElementById('backFromGuideBtn').classList.remove('hidden');
-    } else if (!appData) {
-      document.getElementById('emptyState').classList.remove('hidden');
+    setPendingQueue(queue);
+
+    if (payload.action === 'deleteTransaction') {
+      appData.transactions = appData.transactions.filter(tx => String(tx.id) !== String(payload.id));
+    } else {
+      const tx = { ...payload.tx };
+      const rate = (appData.rates || []).find(item => item.currency === tx.currency);
+      tx.homeAmount = Number((Number(tx.amount) * (Number(rate?.finalRate) || 1)).toFixed(2));
+      const index = appData.transactions.findIndex(item => String(item.id) === String(tx.id));
+      if (index >= 0) appData.transactions[index] = tx;
+      else appData.transactions.push(tx);
     }
 
-    if (tab === 'summary' && appData) {
-      renderSummaryDropdowns();
-      renderSummary();
-    }
+    persistOfflineState();
+    renderAll();
+    offlineMessage = '';
+    renderOfflineStatus();
+
+    if (navigator.onLine) await syncQueue();
+    else renderOfflineStatus();
+
+    return true;
   }
+
+  if (loader) loader.classList.remove('hidden');
+
+  try {
+    const data = await postToTrip(payload || { action: 'getAll' });
+    const pending = getPendingQueue();
+    appData = applyQueuedChanges(data, pending);
+
+    if (appData.config.tripPin) {
+      tripPins[activeApiUrl] = appData.config.tripPin;
+      localStorage.setItem('tripsplit_pins', JSON.stringify(tripPins));
+    }
+
+    const tripEntry = savedTrips.find(t => t.url === activeApiUrl);
+    if (tripEntry) {
+      const sheetName = (appData.config.tripName || '').trim();
+      const isDefaultName = !sheetName || sheetName === 'New Trip';
+      const localName = (tripEntry.name || '').trim();
+      const isUsefulLocalName = localName && localName !== 'New Trip' && localName !== 'Shared Trip';
+
+      if (isDefaultName && isUsefulLocalName) {
+        appData.config.tripName = localName;
+        persistOfflineState();
+        await apiCall({ action: 'saveConfig', config: appData.config, rates: appData.rates });
+        return true;
+      }
+
+      if (sheetName && tripEntry.name !== sheetName) {
+        tripEntry.name = sheetName;
+        localStorage.setItem('tripsplit_trips', JSON.stringify(savedTrips));
+        renderTripSelector();
+      }
+    }
+
+    persistOfflineState();
+    offlineMessage = '';
+    renderAll();
+    renderOfflineStatus();
+    return true;
+  } catch (err) {
+    offlineMessage = '';
+
+    const cached = readOfflineState();
+    if (!appData && cached.data) appData = cached.data;
+    if (appData) {
+      appData = applyQueuedChanges(appData, cached.queue);
+      renderAll();
+    }
+
+    if (cached.queue.length) {
+      offlineMessage = `Pending sync (${cached.queue.length}). ${err.message}`;
+    } else if (!cached.data) {
+      offlineMessage = `Could not connect: ${err.message}`;
+    }
+
+    renderOfflineStatus();
+    return false;
+  } finally {
+    if (loader) loader.classList.add('hidden');
+  }
+}
+
+function refreshData() {
+  return getPendingQueue().length ? syncQueue() : apiCall(null);
+}
 
   function renderAll() {
     if (!appData) return;
@@ -2063,20 +2265,32 @@ function addOrUpdateTransaction(ss, tx, isUpdate) {
   const ratesSheet = ss.getSheetByName('Rates');
   const rateRows = ratesSheet.getRange(2, 1, Math.max(ratesSheet.getLastRow() - 1, 1), 4).getValues();
   let rate = 1;
+
   for (let i = 0; i < rateRows.length; i++) {
-    if (String(rateRows[i][0]).trim() === tx.currency) { rate = Number(rateRows[i][3]) || 1; break; }
+    if (String(rateRows[i][0]).trim() === tx.currency) {
+      rate = Number(rateRows[i][3]) || 1;
+      break;
+    }
   }
+
   const homeAmount = Number((tx.amount * rate).toFixed(2));
-  const rowData = [tx.id, tx.date, tx.item, tx.category, Number(tx.amount), tx.currency, homeAmount, JSON.stringify(tx.payers), JSON.stringify(tx.splits), tx.notes || ''];
-  if (isUpdate) {
-    const lastRow = txSheet.getLastRow();
-    if (lastRow > 1) {
-      const ids = txSheet.getRange(2, 1, lastRow - 1, 1).getValues();
-      for (let i = 0; i < ids.length; i++) {
-        if (String(ids[i][0]) === String(tx.id)) { txSheet.getRange(i + 2, 1, 1, 10).setValues([rowData]); return; }
+  const rowData = [
+    tx.id, tx.date, tx.item, tx.category, Number(tx.amount), tx.currency,
+    homeAmount, JSON.stringify(tx.payers), JSON.stringify(tx.splits), tx.notes || ''
+  ];
+
+  const lastRow = txSheet.getLastRow();
+  if (lastRow > 1) {
+    const ids = txSheet.getRange(2, 1, lastRow - 1, 1).getValues();
+    for (let i = 0; i < ids.length; i++) {
+      if (String(ids[i][0]) === String(tx.id)) {
+        txSheet.getRange(i + 2, 1, 1, 10).setValues([rowData]);
+        return;
       }
     }
   }
+
+  // An update for a missing ID is also inserted, matching the prior behavior.
   txSheet.appendRow(rowData);
 }
 
