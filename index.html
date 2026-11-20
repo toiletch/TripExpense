@@ -244,6 +244,16 @@
     </nav>
   </header>
 
+  <!-- Offline / pending sync banner -->
+  <div id="offlineBanner" class="hidden no-print sticky top-[57px] z-20">
+    <div class="max-w-3xl mx-auto px-4 pt-2">
+      <div id="offlineBannerInner" class="rounded-xl px-3.5 py-2.5 text-xs font-medium flex items-center justify-between gap-3 border">
+        <span id="offlineBannerText">Offline</span>
+        <button type="button" id="offlineBannerBtn" onclick="flushSyncQueue()" class="shrink-0 underline font-semibold">Sync now</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Loading Overlay -->
   <div id="loader" class="fixed inset-0 bg-slate-900/20 backdrop-blur-xs z-50 hidden flex items-center justify-center">
     <div class="bg-white px-5 py-3.5 rounded-2xl shadow-md border border-slate-100 flex items-center gap-3">
@@ -659,6 +669,8 @@
   let tripPins = JSON.parse(localStorage.getItem('tripsplit_pins') || '{}');
   let activeApiUrl = '';
   let appData = null;
+  let isOnline = navigator.onLine;
+  let isFlushingQueue = false;
 
   let selectedPayer = '';
   let isMultiPayer = false;
@@ -669,6 +681,193 @@
   let pinnedSplits = {};
   let chartInstance = null;
   let expandedCategories = {};
+
+  // --- OFFLINE QUEUE HELPERS ---
+  function queueKey(url) {
+    return 'tripsplit_queue_' + (url || activeApiUrl);
+  }
+  function cacheKey(url) {
+    return 'tripsplit_cache_' + (url || activeApiUrl);
+  }
+
+  function getSyncQueue(url) {
+    try {
+      return JSON.parse(localStorage.getItem(queueKey(url)) || '[]');
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function setSyncQueue(queue, url) {
+    localStorage.setItem(queueKey(url), JSON.stringify(queue));
+    updateOfflineBanner();
+  }
+
+  function saveAppDataCache() {
+    if (!activeApiUrl || !appData) return;
+    try {
+      localStorage.setItem(cacheKey(activeApiUrl), JSON.stringify(appData));
+    } catch (e) {
+      // quota full — ignore
+    }
+  }
+
+  function loadAppDataCache(url) {
+    try {
+      const raw = localStorage.getItem(cacheKey(url));
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function enqueueAction(payload) {
+    const q = getSyncQueue();
+    q.push({
+      id: 'q_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+      payload,
+      createdAt: Date.now()
+    });
+    setSyncQueue(q);
+  }
+
+  function updateOfflineBanner() {
+    const banner = document.getElementById('offlineBanner');
+    const inner = document.getElementById('offlineBannerInner');
+    const text = document.getElementById('offlineBannerText');
+    const btn = document.getElementById('offlineBannerBtn');
+    if (!banner || !inner || !text) return;
+
+    const q = getSyncQueue();
+    const pending = q.length;
+
+    if (!isOnline) {
+      banner.classList.remove('hidden');
+      inner.className = 'rounded-xl px-3.5 py-2.5 text-xs font-medium flex items-center justify-between gap-3 border bg-amber-50 border-amber-200 text-amber-900';
+      text.textContent = pending
+        ? `Offline — ${pending} change${pending === 1 ? '' : 's'} saved on this device`
+        : 'Offline — changes will be saved on this device';
+      if (btn) btn.classList.add('hidden');
+    } else if (pending > 0) {
+      banner.classList.remove('hidden');
+      inner.className = 'rounded-xl px-3.5 py-2.5 text-xs font-medium flex items-center justify-between gap-3 border bg-sky-50 border-sky-200 text-sky-900';
+      text.textContent = `Pending sync (${pending})`;
+      if (btn) {
+        btn.classList.remove('hidden');
+        btn.textContent = isFlushingQueue ? 'Syncing…' : 'Sync now';
+      }
+    } else {
+      banner.classList.add('hidden');
+    }
+  }
+
+  function applyOptimisticMutation(payload) {
+    if (!appData || !payload) return;
+    const action = payload.action;
+    if (action === 'addTransaction' && payload.tx) {
+      const tx = { ...payload.tx };
+      // Estimate homeAmount locally from current rates
+      const rateObj = (appData.rates || []).find(r => r.currency === tx.currency);
+      const rate = rateObj ? (Number(rateObj.finalRate) || 1) : 1;
+      tx.homeAmount = Number((Number(tx.amount) * rate).toFixed(2));
+      appData.transactions = appData.transactions || [];
+      const idx = appData.transactions.findIndex(t => t.id === tx.id);
+      if (idx >= 0) appData.transactions[idx] = tx;
+      else appData.transactions.push(tx);
+    } else if (action === 'updateTransaction' && payload.tx) {
+      const tx = { ...payload.tx };
+      const rateObj = (appData.rates || []).find(r => r.currency === tx.currency);
+      const rate = rateObj ? (Number(rateObj.finalRate) || 1) : 1;
+      tx.homeAmount = Number((Number(tx.amount) * rate).toFixed(2));
+      const idx = (appData.transactions || []).findIndex(t => t.id === tx.id);
+      if (idx >= 0) appData.transactions[idx] = tx;
+      else appData.transactions.push(tx);
+    } else if (action === 'deleteTransaction' && payload.id) {
+      appData.transactions = (appData.transactions || []).filter(t => t.id !== payload.id);
+    }
+    saveAppDataCache();
+  }
+
+  const OFFLINE_SAFE_ACTIONS = new Set(['addTransaction', 'updateTransaction', 'deleteTransaction']);
+
+  async function flushSyncQueue() {
+    if (!activeApiUrl || isFlushingQueue) return;
+    if (!navigator.onLine) {
+      isOnline = false;
+      updateOfflineBanner();
+      return;
+    }
+    const q = getSyncQueue();
+    if (q.length === 0) {
+      updateOfflineBanner();
+      return;
+    }
+    isFlushingQueue = true;
+    updateOfflineBanner();
+    const loader = document.getElementById('loader');
+    if (loader) loader.classList.remove('hidden');
+
+    try {
+      while (true) {
+        const queue = getSyncQueue();
+        if (queue.length === 0) break;
+        const item = queue[0];
+        const pin = tripPins[activeApiUrl] || '';
+        const bodyPayload = { ...item.payload, pin };
+        const res = await fetch(activeApiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify(bodyPayload)
+        });
+        const json = await res.json();
+        if (json.status === 'auth_required') {
+          const enteredPin = prompt('Enter Trip PIN to sync pending changes:');
+          if (enteredPin !== null) {
+            tripPins[activeApiUrl] = enteredPin.trim();
+            localStorage.setItem('tripsplit_pins', JSON.stringify(tripPins));
+            continue; // retry same item
+          }
+          break;
+        }
+        if (json.status !== 'ok') {
+          throw new Error(json.message || 'Sync failed');
+        }
+        // success — drop first item
+        queue.shift();
+        setSyncQueue(queue);
+        if (json.data && json.data.config) {
+          appData = json.data;
+          saveAppDataCache();
+        }
+      }
+      // Final refresh from server if queue empty
+      if (getSyncQueue().length === 0) {
+        await apiCall(null, { skipQueue: true });
+      } else {
+        renderAll();
+      }
+    } catch (err) {
+      isOnline = navigator.onLine;
+      updateOfflineBanner();
+      alert('Could not sync all changes: ' + err.message + '\n\nPending items are kept on this device.');
+    } finally {
+      isFlushingQueue = false;
+      if (loader) loader.classList.add('hidden');
+      updateOfflineBanner();
+    }
+  }
+
+  window.addEventListener('online', () => {
+    isOnline = true;
+    updateOfflineBanner();
+    if (activeApiUrl && getSyncQueue().length > 0) {
+      flushSyncQueue();
+    }
+  });
+  window.addEventListener('offline', () => {
+    isOnline = false;
+    updateOfflineBanner();
+  });
 
   // --- SETTINGS POPOVER & THEME ---
   function toggleSettingsMenu(e) {
@@ -771,6 +970,7 @@
     }
 
     renderTripSelector();
+    updateOfflineBanner();
     if (activeApiUrl) {
       switchTrip(activeApiUrl);
     }
@@ -859,9 +1059,45 @@
     switchTab('expenses');
   }
 
-  async function apiCall(payload = null) {
+  async function apiCall(payload = null, options = {}) {
+    const action = payload ? payload.action : 'getAll';
+    const isMutation = payload && OFFLINE_SAFE_ACTIONS.has(action);
+    const isRead = !payload || action === 'getAll';
+
+    // Offline: queue safe mutations and update local UI
+    if (!navigator.onLine && isMutation && appData) {
+      isOnline = false;
+      enqueueAction(payload);
+      applyOptimisticMutation(payload);
+      renderAll();
+      updateOfflineBanner();
+      return;
+    }
+
+    // Offline read: use cache if available
+    if (!navigator.onLine && isRead) {
+      isOnline = false;
+      const cached = loadAppDataCache(activeApiUrl);
+      if (cached && cached.config) {
+        appData = cached;
+        renderAll();
+        updateOfflineBanner();
+        return;
+      }
+      updateOfflineBanner();
+      alert('You are offline and no cached trip data is available on this device.');
+      return;
+    }
+
+    // Online but non-expense actions while queue has items: flush first
+    if (navigator.onLine && payload && !options.skipQueue && !isRead && !isMutation) {
+      if (getSyncQueue().length > 0) {
+        await flushSyncQueue();
+      }
+    }
+
     const loader = document.getElementById('loader');
-    loader.classList.remove('hidden');
+    if (!options.silent) loader.classList.remove('hidden');
     try {
       const pin = tripPins[activeApiUrl] || '';
       const bodyPayload = payload ? { ...payload, pin } : { action: 'getAll', pin };
@@ -878,7 +1114,7 @@
         if (enteredPin !== null) {
           tripPins[activeApiUrl] = enteredPin.trim();
           localStorage.setItem('tripsplit_pins', JSON.stringify(tripPins));
-          return apiCall(payload);
+          return apiCall(payload, options);
         }
         return;
       }
@@ -888,6 +1124,8 @@
         throw new Error('Invalid response from server. Please update your Apps Script (Copy Script in Setup Guide) and try again.');
       }
       appData = json.data;
+      isOnline = true;
+      saveAppDataCache();
 
       if (appData.config.tripPin) {
         tripPins[activeApiUrl] = appData.config.tripPin;
@@ -904,7 +1142,6 @@
         // First-time connect: push the nickname the user typed into the sheet
         if (isDefaultName && isUsefulLocalName) {
           appData.config.tripName = localName;
-          // Persist to sheet, then continue rendering with the updated name
           await apiCall({ action: 'saveConfig', config: appData.config, rates: appData.rates });
           return;
         }
@@ -917,14 +1154,45 @@
         }
       }
       renderAll();
+      updateOfflineBanner();
+
+      // If we just came online with a simple getAll, try flushing queue
+      if (isRead && !options.skipQueue && getSyncQueue().length > 0) {
+        flushSyncQueue();
+      }
     } catch (err) {
+      // Network failure on a safe mutation → queue it
+      if (isMutation && appData) {
+        isOnline = false;
+        enqueueAction(payload);
+        applyOptimisticMutation(payload);
+        renderAll();
+        updateOfflineBanner();
+        return;
+      }
+      // Network failure on read → try cache
+      if (isRead) {
+        const cached = loadAppDataCache(activeApiUrl);
+        if (cached && cached.config) {
+          appData = cached;
+          isOnline = false;
+          renderAll();
+          updateOfflineBanner();
+          return;
+        }
+      }
       alert('Connection error: ' + err.message);
+      updateOfflineBanner();
     } finally {
       loader.classList.add('hidden');
     }
   }
 
   function refreshData() {
+    // Manual sync: flush queue then pull latest
+    if (getSyncQueue().length > 0) {
+      return flushSyncQueue();
+    }
     return apiCall(null);
   }
 
